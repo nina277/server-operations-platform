@@ -1,0 +1,27 @@
+# 環境変数・秘密情報
+.env
+*.pem
+*.key
+*.pfx
+service-account*.json
+
+# .NET
+bin/
+obj/
+*.user
+TestResults/
+
+# Node
+node_modules/
+dist/
+dist-ssr/
+coverage/
+*.local
+
+# エディタ・OS
+.vs/
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+*.swp
