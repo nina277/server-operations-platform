@@ -50,6 +50,9 @@
 | MYSQL_DATABASE | データベース名 | server_operations |
 | MYSQL_USER | アプリ用DBユーザー | serverops |
 | MYSQL_PASSWORD | アプリ用DBパスワード | (ダミー。要変更) |
+| JWT_SIGNING_KEY | JWT署名鍵(32文字以上) | (ダミー。要変更) |
+| INITIAL_ADMIN_USERNAME | 初期管理者ユーザー名(初回起動時のみ使用) | admin |
+| INITIAL_ADMIN_PASSWORD | 初期管理者パスワード(12文字以上) | (ダミー。要変更) |
 
 ## ポート方針
 
