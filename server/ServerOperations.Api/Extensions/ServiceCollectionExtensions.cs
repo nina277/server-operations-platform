@@ -41,11 +41,18 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
         services.AddScoped<IMfaCredentialRepository, MfaCredentialRepository>();
         services.AddScoped<IAuditLogRepository, AuditLogRepository>();
+        services.AddScoped<ISystemSettingRepository, SystemSettingRepository>();
+        services.AddScoped<IEncryptedSecretRepository, EncryptedSecretRepository>();
+        services.AddScoped<ITrustedNetworkCidrRepository, TrustedNetworkCidrRepository>();
 
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<ITokenService, JwtTokenService>();
         services.AddScoped<IMfaService, MfaService>();
         services.AddScoped<IAuditService, AuditService>();
+        services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
+        services.AddScoped<ISettingsService, SettingsService>();
+        services.AddScoped<ISecretsService, SecretsService>();
+        services.AddScoped<INetworkCidrService, NetworkCidrService>();
 
         return services;
     }

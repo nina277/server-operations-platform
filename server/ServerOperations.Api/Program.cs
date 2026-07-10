@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using ServerOperations.Api.DTOs.Common;
@@ -26,11 +27,23 @@ builder.Services.Configure<ApiBehaviorOptions>(options =>
 builder.Services.AddAppServices(builder.Configuration);
 builder.Services.AddAppAuthentication(builder.Configuration);
 
+// nginx(リバースプロキシ)経由の実クライアントIPをX-Forwarded-Forから取得する。
+// APIは外部ポートを公開せずnginxからのみ到達できるため、直近プロキシを信頼する。
+// ForwardLimit=1により、クライアントが偽装したXFFではなくnginxが付与した末尾の値を採用する。
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.ForwardLimit = 1;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
 builder.Services.AddHealthChecks()
     .AddCheck("self", () => HealthCheckResult.Healthy(), tags: ["live", "ready"]);
 
 var app = builder.Build();
 
+app.UseForwardedHeaders();
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 
 // liveness: プロセスが応答できるか。readiness: 依存関係を含め受付可能か。
@@ -46,6 +59,7 @@ app.MapHealthChecks("/api/health/ready", new HealthCheckOptions
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseMiddleware<AuditMiddleware>();
+app.UseMiddleware<TrustedNetworkMiddleware>();
 
 app.MapControllers();
 
