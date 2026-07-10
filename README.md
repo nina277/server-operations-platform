@@ -73,7 +73,16 @@ Frontend:
 テスト・Lint:
 
     cd server && dotnet build && dotnet test
-    cd client-web && npm run test:unit && npm run lint && npm run type-check
+    cd client-web && npm run test:unit -- --run && npm run lint && npm run type-check
+
+## CI
+
+`main` へのPull Requestとpushで GitHub Actions(`.github/workflows/ci.yml`)が自動実行される。
+
+- Backend: `dotnet restore` → `dotnet build` → `dotnet test`
+- Frontend: `npm ci` → `lint` → `type-check` → `test:unit` → `build`
+
+CIが失敗しているPRはマージしない。
 
 ## 開発フロー
 
