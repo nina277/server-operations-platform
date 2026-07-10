@@ -27,6 +27,20 @@ public class AuthEndpointsTests(WebApplicationFactory<Program> factory)
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
+    [Theory]
+    [InlineData("/api/v1/settings/profile")]
+    [InlineData("/api/v1/settings/retention")]
+    [InlineData("/api/v1/settings/network-cidrs")]
+    [InlineData("/api/v1/settings/secrets/smtp-password/status")]
+    public async Task SettingsEndpoints_WithoutToken_Return401(string path)
+    {
+        using var client = factory.CreateClient();
+
+        var response = await client.GetAsync(path);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
     [Fact]
     public async Task Login_WithMalformedBody_ReturnsApiResponseValidationError()
     {
