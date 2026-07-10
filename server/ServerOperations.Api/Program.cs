@@ -23,3 +23,6 @@ app.MapHealthChecks("/api/health/ready", new HealthCheckOptions
 app.MapControllers();
 
 app.Run();
+
+// WebApplicationFactoryによる統合テストからエントリポイントを参照可能にする
+public partial class Program;
