@@ -34,6 +34,14 @@ services:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       TZ: ${TZ:-Asia/Tokyo}
       ConnectionStrings__Default: "Server=mysql;Port=3306;Database=${MYSQL_DATABASE};User=${MYSQL_USER};Password=${MYSQL_PASSWORD};CharSet=utf8mb4;"
+      Database__AutoMigrate: "true"
+      DataProtection__KeysPath: /app/keys
+      Jwt__SigningKey: ${JWT_SIGNING_KEY}
+      InitialAdmin__Username: ${INITIAL_ADMIN_USERNAME:-}
+      InitialAdmin__Password: ${INITIAL_ADMIN_PASSWORD:-}
+    volumes:
+      # Data Protection鍵(MFAシークレット暗号化)をコンテナ再作成後も保持する
+      - api-keys:/app/keys
     # 外部ポートは公開しない(nginx経由でのみアクセスする)
     depends_on:
       mysql:
@@ -84,6 +92,7 @@ services:
 
 volumes:
   mysql-data:
+  api-keys:
 
 networks:
   frontend:
