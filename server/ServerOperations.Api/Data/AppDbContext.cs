@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using ServerOperations.Api.Models.Auth;
+using ServerOperations.Api.Models.Operations;
 using ServerOperations.Api.Models.Settings;
 
 namespace ServerOperations.Api.Data;
@@ -19,6 +20,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<EncryptedSecret> EncryptedSecrets => Set<EncryptedSecret>();
 
     public DbSet<TrustedNetworkCidr> TrustedNetworkCidrs => Set<TrustedNetworkCidr>();
+
+    public DbSet<MonitoringTarget> MonitoringTargets => Set<MonitoringTarget>();
+
+    public DbSet<TargetProfile> TargetProfiles => Set<TargetProfile>();
+
+    public DbSet<TargetCredential> TargetCredentials => Set<TargetCredential>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

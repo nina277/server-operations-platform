@@ -4,6 +4,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using ServerOperations.Api.Adapters.Implementations;
+using ServerOperations.Api.Adapters.Interfaces;
 using ServerOperations.Api.Data;
 using ServerOperations.Api.Models.Auth;
 using ServerOperations.Api.Repositories.Implementations;
@@ -53,6 +55,31 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ISettingsService, SettingsService>();
         services.AddScoped<ISecretsService, SecretsService>();
         services.AddScoped<INetworkCidrService, NetworkCidrService>();
+
+        services.AddScoped<IMonitoringTargetRepository, MonitoringTargetRepository>();
+        services.AddSingleton<IAdapterTemplateCatalog, AdapterTemplateCatalog>();
+        services.AddScoped<ITargetService, TargetService>();
+
+        // アダプター用HTTPクライアント。リダイレクトは追跡しない(検証済みURL以外への接続を防ぐ)
+        services.AddHttpClient(DockerAdapter.HttpClientName, client =>
+            {
+                client.Timeout = TimeSpan.FromSeconds(10);
+            })
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+            {
+                AllowAutoRedirect = false,
+            });
+        services.AddHttpClient(HttpAdapter.HttpClientName, client =>
+            {
+                // 個別タイムアウトはHttpAdapter側のCancellationTokenで制御する
+                client.Timeout = TimeSpan.FromSeconds(65);
+            })
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+            {
+                AllowAutoRedirect = false,
+            });
+        services.AddScoped<IDockerAdapter, DockerAdapter>();
+        services.AddScoped<IHttpAdapter, HttpAdapter>();
 
         return services;
     }
