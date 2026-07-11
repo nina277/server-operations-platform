@@ -60,29 +60,54 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IAdapterTemplateCatalog, AdapterTemplateCatalog>();
         services.AddScoped<ITargetService, TargetService>();
 
-        // アダプター用HTTPクライアント。リダイレクトは追跡しない(検証済みURL以外への接続を防ぐ)
+        // アダプター用HTTPクライアント。リダイレクトは追跡せず、接続時にも遮断対象IPを検査する
+        // (登録時の検証後にDNSの解決先が差し替えられるDNS rebindingへの対策)
         services.AddHttpClient(DockerAdapter.HttpClientName, client =>
             {
                 client.Timeout = TimeSpan.FromSeconds(10);
             })
-            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
-            {
-                AllowAutoRedirect = false,
-            });
+            .ConfigurePrimaryHttpMessageHandler(CreateGuardedHandler);
         services.AddHttpClient(HttpAdapter.HttpClientName, client =>
             {
                 // 個別タイムアウトはHttpAdapter側のCancellationTokenで制御する
                 client.Timeout = TimeSpan.FromSeconds(65);
             })
-            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
-            {
-                AllowAutoRedirect = false,
-            });
+            .ConfigurePrimaryHttpMessageHandler(CreateGuardedHandler);
         services.AddScoped<IDockerAdapter, DockerAdapter>();
         services.AddScoped<IHttpAdapter, HttpAdapter>();
 
         return services;
     }
+
+    /// <summary>
+    /// 接続時に自前でDNS解決し、遮断対象(ループバック・リンクローカル等)を除いた
+    /// 検証済みIPだけへ接続するハンドラーを作る。
+    /// </summary>
+    private static SocketsHttpHandler CreateGuardedHandler() => new()
+    {
+        AllowAutoRedirect = false,
+        ConnectCallback = async (context, ct) =>
+        {
+            var allowed = await Adapters.Implementations.EndpointValidator
+                .ResolveAllowedAddressesAsync(context.DnsEndPoint.Host, ct);
+
+            var socket = new System.Net.Sockets.Socket(
+                System.Net.Sockets.SocketType.Stream, System.Net.Sockets.ProtocolType.Tcp)
+            {
+                NoDelay = true,
+            };
+            try
+            {
+                await socket.ConnectAsync(allowed, context.DnsEndPoint.Port, ct);
+                return new System.Net.Sockets.NetworkStream(socket, ownsSocket: true);
+            }
+            catch
+            {
+                socket.Dispose();
+                throw;
+            }
+        },
+    };
 
     public static IServiceCollection AddAppAuthentication(
         this IServiceCollection services, IConfiguration configuration)

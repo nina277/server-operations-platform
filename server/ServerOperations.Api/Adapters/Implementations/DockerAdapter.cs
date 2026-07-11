@@ -32,15 +32,26 @@ public class DockerAdapter(IHttpClientFactory httpClientFactory, ILogger<DockerA
             }
 
             var json = await response.Content.ReadAsStringAsync(ct);
-            using var doc = JsonDocument.Parse(json);
-            var version = doc.RootElement.TryGetProperty("Version", out var v) ? v.GetString() : null;
-            var apiVersion = doc.RootElement.TryGetProperty("ApiVersion", out var av) ? av.GetString() : null;
+            try
+            {
+                using var doc = JsonDocument.Parse(json);
+                var version = doc.RootElement.TryGetProperty("Version", out var v) ? v.GetString() : null;
+                var apiVersion = doc.RootElement.TryGetProperty("ApiVersion", out var av) ? av.GetString() : null;
 
-            return new AdapterConnectionResult(
-                true,
-                "Docker APIへ接続できました。",
-                stopwatch.ElapsedMilliseconds,
-                $"Engine {version ?? "unknown"} / API {apiVersion ?? "unknown"}");
+                return new AdapterConnectionResult(
+                    true,
+                    "Docker APIへ接続できました。",
+                    stopwatch.ElapsedMilliseconds,
+                    $"Engine {version ?? "unknown"} / API {apiVersion ?? "unknown"}");
+            }
+            catch (JsonException)
+            {
+                // リバースプロキシのエラーページ等、Docker API以外が応答したケース
+                return new AdapterConnectionResult(
+                    false,
+                    "応答がDocker APIの形式ではありません。エンドポイントの設定を確認してください。",
+                    stopwatch.ElapsedMilliseconds);
+            }
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {

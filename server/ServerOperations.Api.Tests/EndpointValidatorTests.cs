@@ -87,4 +87,34 @@ public class EndpointValidatorTests
         Assert.True(EndpointValidator.IsBlockedAddress(System.Net.IPAddress.Parse("::ffff:127.0.0.1")));
         Assert.False(EndpointValidator.IsBlockedAddress(System.Net.IPAddress.Parse("::ffff:192.168.1.10")));
     }
+
+    [Theory]
+    [InlineData("http://user:secret@192.168.1.10/health")]
+    [InlineData("https://token@10.0.0.5/api")]
+    public async Task ValidateHttpUrl_EmbeddedCredentials_Rejected(string url)
+    {
+        var ex = await Assert.ThrowsAsync<AppException>(() =>
+            EndpointValidator.ValidateHttpUrlAsync(url));
+
+        Assert.Equal("credentials_in_url", ex.Code);
+    }
+
+    [Fact]
+    public async Task ResolveAllowedAddresses_BlockedLiteral_ThrowsHttpRequestException()
+    {
+        // 接続時ガード: 遮断対象しか解決できないホストへは接続させない
+        await Assert.ThrowsAsync<HttpRequestException>(() =>
+            EndpointValidator.ResolveAllowedAddressesAsync("127.0.0.1", CancellationToken.None));
+        await Assert.ThrowsAsync<HttpRequestException>(() =>
+            EndpointValidator.ResolveAllowedAddressesAsync("localhost", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task ResolveAllowedAddresses_AllowedLiteral_ReturnsAddress()
+    {
+        var addresses = await EndpointValidator.ResolveAllowedAddressesAsync(
+            "192.168.1.20", CancellationToken.None);
+
+        Assert.Single(addresses);
+    }
 }

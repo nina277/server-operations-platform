@@ -42,6 +42,14 @@ public static class EndpointValidator
                 schemeMessage ?? "http または https のURLだけを指定できます。");
         }
 
+        // URL埋め込みの認証情報は一覧APIで露出するため拒否する(Basic認証はcredentialsで指定する)
+        if (!string.IsNullOrEmpty(uri.UserInfo))
+        {
+            throw AppException.BadRequest(
+                "credentials_in_url",
+                "URLに認証情報(user:pass@)を埋め込まないでください。Basic認証はcredentialsで指定してください。");
+        }
+
         return uri;
     }
 
@@ -79,6 +87,32 @@ public static class EndpointValidator
         {
             throw Blocked();
         }
+    }
+
+    /// <summary>
+    /// 接続時のDNS再解決対策。ホストを解決し、遮断対象を除いた接続許可IPだけを返す。
+    /// SocketsHttpHandler.ConnectCallbackから呼び、検証済みIPへのみ接続する。
+    /// </summary>
+    internal static async Task<IPAddress[]> ResolveAllowedAddressesAsync(string host, CancellationToken ct)
+    {
+        IPAddress[] addresses;
+        if (IPAddress.TryParse(host, out var literal))
+        {
+            addresses = [literal];
+        }
+        else
+        {
+            addresses = await Dns.GetHostAddressesAsync(host, ct);
+        }
+
+        var allowed = addresses.Where(a => !IsBlockedAddress(a)).ToArray();
+        if (allowed.Length == 0)
+        {
+            throw new HttpRequestException(
+                "Connection blocked: the host resolves only to disallowed addresses.");
+        }
+
+        return allowed;
     }
 
     internal static bool IsBlockedAddress(IPAddress address)
