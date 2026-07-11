@@ -1,5 +1,5 @@
 using ServerOperations.Api.DTOs.Common;
-using ServerOperations.Api.Models.Auth;
+using ServerOperations.Core.Models.Auth;
 using ServerOperations.Api.Services.Interfaces;
 
 namespace ServerOperations.Api.Middleware;

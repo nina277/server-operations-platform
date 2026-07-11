@@ -4,12 +4,12 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
-using ServerOperations.Api.Adapters.Implementations;
-using ServerOperations.Api.Adapters.Interfaces;
-using ServerOperations.Api.Data;
-using ServerOperations.Api.Models.Auth;
-using ServerOperations.Api.Repositories.Implementations;
-using ServerOperations.Api.Repositories.Interfaces;
+using ServerOperations.Core.Adapters.Implementations;
+using ServerOperations.Core.Adapters.Interfaces;
+using ServerOperations.Core.Data;
+using ServerOperations.Core.Models.Auth;
+using ServerOperations.Core.Repositories.Implementations;
+using ServerOperations.Core.Repositories.Interfaces;
 using ServerOperations.Api.Services.Implementations;
 using ServerOperations.Api.Services.Interfaces;
 
@@ -88,7 +88,7 @@ public static class ServiceCollectionExtensions
         AllowAutoRedirect = false,
         ConnectCallback = async (context, ct) =>
         {
-            var allowed = await Adapters.Implementations.EndpointValidator
+            var allowed = await EndpointValidator
                 .ResolveAllowedAddressesAsync(context.DnsEndPoint.Host, ct);
 
             var socket = new System.Net.Sockets.Socket(

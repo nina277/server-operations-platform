@@ -1,7 +1,7 @@
 using System.Net;
 using Microsoft.Extensions.Logging.Abstractions;
-using ServerOperations.Api.Adapters.Implementations;
-using ServerOperations.Api.Adapters.Interfaces;
+using ServerOperations.Core.Adapters.Implementations;
+using ServerOperations.Core.Adapters.Interfaces;
 
 namespace ServerOperations.Api.Tests;
 

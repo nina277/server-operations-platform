@@ -1,6 +1,6 @@
-using ServerOperations.Api.Adapters.Interfaces;
-using ServerOperations.Api.Models.Operations;
-using ServerOperations.Api.Repositories.Interfaces;
+using ServerOperations.Core.Adapters.Interfaces;
+using ServerOperations.Core.Models.Operations;
+using ServerOperations.Core.Repositories.Interfaces;
 
 namespace ServerOperations.Api.Tests.Fakes;
 

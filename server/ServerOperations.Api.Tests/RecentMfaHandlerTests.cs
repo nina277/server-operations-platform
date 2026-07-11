@@ -2,7 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Options;
 using ServerOperations.Api.Extensions;
-using ServerOperations.Api.Models.Auth;
+using ServerOperations.Core.Models.Auth;
 using ServerOperations.Api.Tests.Fakes;
 
 namespace ServerOperations.Api.Tests;

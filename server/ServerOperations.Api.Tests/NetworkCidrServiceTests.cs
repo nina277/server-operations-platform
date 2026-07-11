@@ -1,7 +1,6 @@
 using System.Net;
 using ServerOperations.Api.DTOs.Settings;
-using ServerOperations.Api.Models.Settings;
-using ServerOperations.Api.Services;
+using ServerOperations.Core.Models.Settings;
 using ServerOperations.Api.Services.Implementations;
 using ServerOperations.Api.Tests.Fakes;
 
