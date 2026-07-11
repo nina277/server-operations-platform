@@ -34,11 +34,26 @@ public class FakeDockerAdapter : IDockerAdapter
 
     public List<string> CalledEndpoints { get; } = [];
 
+    public List<ContainerInfo> Containers { get; set; } = [];
+
+    public Dictionary<string, string> ContainerLogs { get; } = [];
+
     public Task<AdapterConnectionResult> TestConnectionAsync(string endpoint, CancellationToken ct = default)
     {
         CalledEndpoints.Add(endpoint);
         return Task.FromResult(Result);
     }
+
+    public Task<IReadOnlyList<ContainerInfo>> ListContainersAsync(
+        string endpoint, string? composeProject = null, CancellationToken ct = default)
+    {
+        CalledEndpoints.Add(endpoint);
+        return Task.FromResult<IReadOnlyList<ContainerInfo>>(Containers);
+    }
+
+    public Task<string> GetContainerLogsAsync(
+        string endpoint, string containerId, int tailLines = 50, CancellationToken ct = default) =>
+        Task.FromResult(ContainerLogs.GetValueOrDefault(containerId, string.Empty));
 }
 
 public class FakeHttpAdapter : IHttpAdapter

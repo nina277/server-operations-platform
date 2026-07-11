@@ -11,8 +11,26 @@ namespace ServerOperations.Api.Controllers.Operations;
 [ApiController]
 [Route("api/v1/targets")]
 [Authorize]
-public class TargetsController(ITargetService targetService) : ControllerBase
+public class TargetsController(
+    ITargetService targetService,
+    ITelemetryService telemetryService) : ControllerBase
 {
+    [HttpGet("{id:long}/metrics")]
+    public async Task<ActionResult<ApiResponse<List<MetricSnapshotDto>>>> GetMetrics(
+        long id, [FromQuery] int limit = 100, CancellationToken ct = default)
+    {
+        var result = await telemetryService.GetMetricsAsync(id, limit, ct);
+        return Ok(ApiResponse<List<MetricSnapshotDto>>.Ok(result, TraceId()));
+    }
+
+    [HttpGet("{id:long}/logs")]
+    public async Task<ActionResult<ApiResponse<List<IncidentLogDto>>>> GetLogs(
+        long id, [FromQuery] int limit = 50, CancellationToken ct = default)
+    {
+        var result = await telemetryService.GetLogsAsync(id, limit, ct);
+        return Ok(ApiResponse<List<IncidentLogDto>>.Ok(result, TraceId()));
+    }
+
     [HttpGet]
     public async Task<ActionResult<ApiResponse<List<TargetDto>>>> GetAll(CancellationToken ct)
     {

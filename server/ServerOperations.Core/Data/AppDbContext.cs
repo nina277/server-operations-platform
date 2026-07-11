@@ -27,6 +27,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
     public DbSet<TargetCredential> TargetCredentials => Set<TargetCredential>();
 
+    public DbSet<MetricSnapshot> MetricSnapshots => Set<MetricSnapshot>();
+
+    public DbSet<Incident> Incidents => Set<Incident>();
+
+    public DbSet<IncidentLog> IncidentLogs => Set<IncidentLog>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
