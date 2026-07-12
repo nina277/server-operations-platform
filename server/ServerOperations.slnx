@@ -1,5 +1,6 @@
 <Solution>
   <Project Path="ServerOperations.Api.Tests/ServerOperations.Api.Tests.csproj" />
   <Project Path="ServerOperations.Api/ServerOperations.Api.csproj" />
+  <Project Path="ServerOperations.Core/ServerOperations.Core.csproj" />
   <Project Path="ServerOperations.Worker/ServerOperations.Worker.csproj" />
 </Solution>

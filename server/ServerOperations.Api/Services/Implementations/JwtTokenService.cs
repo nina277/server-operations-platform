@@ -5,7 +5,7 @@ using System.Text;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using ServerOperations.Api.Extensions;
-using ServerOperations.Api.Models.Auth;
+using ServerOperations.Core.Models.Auth;
 using ServerOperations.Api.Services.Interfaces;
 
 namespace ServerOperations.Api.Services.Implementations;

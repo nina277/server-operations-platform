@@ -1,6 +1,6 @@
 using System.Net;
-using ServerOperations.Api.Models.Settings;
-using ServerOperations.Api.Repositories.Interfaces;
+using ServerOperations.Core.Models.Settings;
+using ServerOperations.Core.Repositories.Interfaces;
 using ServerOperations.Api.Services.Interfaces;
 
 namespace ServerOperations.Api.Tests.Fakes;

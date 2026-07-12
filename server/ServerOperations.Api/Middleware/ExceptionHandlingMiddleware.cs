@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using ServerOperations.Api.DTOs.Common;
-using ServerOperations.Api.Services;
 
 namespace ServerOperations.Api.Middleware;
 

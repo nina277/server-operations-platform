@@ -1,11 +1,11 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.DataProtection;
-using ServerOperations.Api.Adapters.Implementations;
-using ServerOperations.Api.Adapters.Interfaces;
+using ServerOperations.Core.Adapters.Implementations;
+using ServerOperations.Core.Adapters.Interfaces;
 using ServerOperations.Api.DTOs.Operations;
-using ServerOperations.Api.Models.Auth;
-using ServerOperations.Api.Models.Operations;
-using ServerOperations.Api.Repositories.Interfaces;
+using ServerOperations.Core.Models.Auth;
+using ServerOperations.Core.Models.Operations;
+using ServerOperations.Core.Repositories.Interfaces;
 using ServerOperations.Api.Services.Interfaces;
 
 namespace ServerOperations.Api.Services.Implementations;
