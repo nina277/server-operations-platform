@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Logging;
 using ServerOperations.Core.Adapters.Interfaces;
 using ServerOperations.Core.Models.Operations;
@@ -23,10 +24,15 @@ public class TargetCollectionService(
     IIncidentLogRepository incidentLogs,
     IDockerAdapter dockerAdapter,
     IHttpAdapter httpAdapter,
+    IDataProtectionProvider dataProtectionProvider,
     TimeProvider timeProvider,
     ILogger<TargetCollectionService> logger) : ITargetCollectionService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    // TargetServiceと同じ目的文字列(暗号化した資格情報を復号するため一致必須)
+    private readonly IDataProtector _credentialProtector =
+        dataProtectionProvider.CreateProtector("TargetCredential");
 
     public async Task CollectAsync(long targetId, CancellationToken ct = default)
     {
@@ -51,7 +57,7 @@ public class TargetCollectionService(
                     await CollectDockerAsync(target.Id, settings["endpoint"], settings.GetValueOrDefault("composeProject"), ct);
                     break;
                 case "web-site":
-                    await CollectHttpAsync(target.Id, settings, ct);
+                    await CollectHttpAsync(target, settings, ct);
                     break;
                 default:
                     logger.LogWarning("Unknown template {TemplateId} for target {TargetId}", target.TemplateId, target.Id);
@@ -131,19 +137,27 @@ public class TargetCollectionService(
     }
 
     private async Task CollectHttpAsync(
-        long targetId, Dictionary<string, string> settings, CancellationToken ct)
+        Models.Operations.MonitoringTarget target, Dictionary<string, string> settings, CancellationToken ct)
     {
+        var targetId = target.Id;
         var now = timeProvider.GetUtcNow().UtcDateTime;
         var url = settings["url"];
         var expectedStatus = int.TryParse(settings.GetValueOrDefault("expectedStatus"), out var es) ? es : 200;
         var timeoutSeconds = int.TryParse(settings.GetValueOrDefault("timeoutSeconds"), out var ts) ? ts : 10;
 
-        // 収集はBasic認証なしの疎通確認とする(資格情報は接続試験でのみ使用)
+        // 設定済みのBasic認証を送信する(未送信だと保護されたエンドポイントで誤検知になる)
+        var basicAuthPassword = target.Credentials
+            .Where(c => c.Kind == "basicAuthPassword")
+            .Select(c => _credentialProtector.Unprotect(c.ValueProtected))
+            .FirstOrDefault();
+
         var result = await httpAdapter.TestConnectionAsync(new HttpCheckOptions
         {
             Url = url,
             ExpectedStatus = expectedStatus,
             TimeoutSeconds = timeoutSeconds,
+            BasicAuthUser = settings.GetValueOrDefault("basicAuthUser"),
+            BasicAuthPassword = basicAuthPassword,
         }, ct);
 
         await snapshots.AddAsync(new MetricSnapshot

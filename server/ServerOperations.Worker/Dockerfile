@@ -2,8 +2,10 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY ServerOperations.Worker/ServerOperations.Worker.csproj ServerOperations.Worker/
+COPY ServerOperations.Core/ServerOperations.Core.csproj ServerOperations.Core/
 RUN dotnet restore ServerOperations.Worker/ServerOperations.Worker.csproj
 COPY ServerOperations.Worker/ ServerOperations.Worker/
+COPY ServerOperations.Core/ ServerOperations.Core/
 RUN dotnet publish ServerOperations.Worker/ServerOperations.Worker.csproj -c Release -o /app /p:UseAppHost=false
 
 FROM mcr.microsoft.com/dotnet/runtime:10.0 AS runtime

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Logging.Abstractions;
 using ServerOperations.Core.Adapters.Interfaces;
 using ServerOperations.Core.Models.Operations;
@@ -19,8 +20,10 @@ public class TargetCollectionServiceTests
     private readonly FakeHttpAdapter _http = new();
     private readonly TestTimeProvider _time = new(BaseTime);
 
+    private readonly Microsoft.AspNetCore.DataProtection.EphemeralDataProtectionProvider _dataProtection = new();
+
     private TargetCollectionService CreateSut() => new(
-        _targets, _snapshots, _incidents, _logs, _docker, _http, _time,
+        _targets, _snapshots, _incidents, _logs, _docker, _http, _dataProtection, _time,
         NullLogger<TargetCollectionService>.Instance);
 
     private void AddDockerTarget(long id = 1)
@@ -150,7 +153,7 @@ public class TargetCollectionServiceTests
         AddHttpTarget();
         var throwingHttp = new ThrowingHttpAdapter();
         var sut = new TargetCollectionService(
-            _targets, _snapshots, _incidents, _logs, _docker, throwingHttp, _time,
+            _targets, _snapshots, _incidents, _logs, _docker, throwingHttp, _dataProtection, _time,
             NullLogger<TargetCollectionService>.Instance);
 
         await sut.CollectAsync(1);
@@ -161,6 +164,28 @@ public class TargetCollectionServiceTests
 
         var incident = Assert.Single(_incidents.Incidents);
         Assert.Equal("CollectionFailed", incident.Classification);
+    }
+
+    [Fact]
+    public async Task Collect_Http_SendsConfiguredBasicAuth()
+    {
+        AddHttpTarget();
+        var settings = JsonSerializer.Deserialize<Dictionary<string, string>>(
+            _targets.Targets[0].Profile!.SettingsJson)!;
+        settings["basicAuthUser"] = "monitor";
+        _targets.Targets[0].Profile!.SettingsJson = JsonSerializer.Serialize(settings);
+        _targets.Targets[0].Credentials.Add(new Core.Models.Operations.TargetCredential
+        {
+            TargetId = 1,
+            Kind = "basicAuthPassword",
+            ValueProtected = _dataProtection.CreateProtector("TargetCredential").Protect("collect-pass"),
+        });
+
+        await CreateSut().CollectAsync(1);
+
+        var options = Assert.Single(_http.CalledOptions);
+        Assert.Equal("monitor", options.BasicAuthUser);
+        Assert.Equal("collect-pass", options.BasicAuthPassword);
     }
 
     [Fact]

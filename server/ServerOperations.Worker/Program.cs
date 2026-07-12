@@ -1,5 +1,6 @@
 using Hangfire;
 using Hangfire.MySql;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using ServerOperations.Core.Adapters.Implementations;
 using ServerOperations.Core.Adapters.Interfaces;
@@ -13,6 +14,15 @@ using ServerOperations.Worker.Jobs;
 var builder = Host.CreateApplicationBuilder(args);
 
 builder.Services.AddSingleton(TimeProvider.System);
+
+// APIと同じ鍵リングを共有し、APIが暗号化した対象資格情報を復号できるようにする
+var dataProtection = builder.Services.AddDataProtection()
+    .SetApplicationName("server-operations-platform");
+var keysPath = builder.Configuration["DataProtection:KeysPath"];
+if (!string.IsNullOrWhiteSpace(keysPath))
+{
+    dataProtection.PersistKeysToFileSystem(new DirectoryInfo(keysPath));
+}
 
 var connectionString = builder.Configuration.GetConnectionString("Default");
 var hangfireEnabled = !string.IsNullOrWhiteSpace(connectionString)

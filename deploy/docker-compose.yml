@@ -60,6 +60,10 @@ services:
       TZ: ${TZ:-Asia/Tokyo}
       ConnectionStrings__Default: "Server=mysql;Port=3306;Database=${MYSQL_DATABASE};User=${MYSQL_USER};Password=${MYSQL_PASSWORD};CharSet=utf8mb4;"
       Collection__Cron: "${COLLECTION_CRON:-* * * * *}"
+      DataProtection__KeysPath: /app/keys
+    volumes:
+      # APIと同じData Protection鍵を共有する(APIが暗号化した対象資格情報の復号に必要)
+      - api-keys:/app/keys
     # 外部ポートは公開しない
     depends_on:
       mysql:
