@@ -14,8 +14,37 @@ namespace ServerOperations.Api.Controllers.Operations;
 [Authorize]
 public class IncidentsController(
     IIncidentService incidentService,
-    IDiagnosisRepository diagnoses) : ControllerBase
+    IDiagnosisRepository diagnoses,
+    ServerOperations.Core.Services.Ai.IAiDiagnosisGateway aiGateway,
+    IIncidentLogRepository incidentLogs,
+    IIncidentRepository incidentRepository) : ControllerBase
 {
+    /// <summary>
+    /// AIによる再診断を要求する。AI無効・上限到達・失敗時は診断を作らず理由を返す(復旧は開始しない)。
+    /// </summary>
+    [HttpPost("{id:long}/rediagnose")]
+    [Authorize(Policy = AuthorizationPolicies.AdminWithRecentMfa)]
+    public async Task<ActionResult<ApiResponse<RediagnoseResultDto>>> Rediagnose(
+        long id, CancellationToken ct)
+    {
+        var dto = await incidentService.GetAsync(id, ct);
+        var incident = await incidentRepository.FindByIdAsync(id, ct)
+            ?? throw AppException.NotFound("incident_not_found", "インシデントが見つかりません。");
+
+        // 直近のマスク済みログ抜粋を入力にする(AI送信前にさらに匿名化・縮小される)
+        var logs = await incidentLogs.GetRecentAsync(dto.TargetId, 5, ct);
+        var logExcerpt = string.Join('\n', logs.Select(l => l.MaskedContent));
+
+        var result = await aiGateway.DiagnoseAsync(incident, logExcerpt, ct);
+
+        return Ok(ApiResponse<RediagnoseResultDto>.Ok(new RediagnoseResultDto
+        {
+            Diagnosis = result.Diagnosis is null ? null : DiagnosisDto.From(result.Diagnosis),
+            Outcome = result.Diagnosis is not null ? "Diagnosed" : result.SkipReason.ToString(),
+            Message = result.Message,
+        }, TraceId()));
+    }
+
     [HttpGet("{id:long}/diagnoses")]
     public async Task<ActionResult<ApiResponse<List<DiagnosisDto>>>> GetDiagnoses(
         long id, CancellationToken ct)

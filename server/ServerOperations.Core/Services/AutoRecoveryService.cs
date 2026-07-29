@@ -34,6 +34,7 @@ public class AutoRecoveryService(
     IRecoveryRateLimiter rateLimiter,
     IRecoveryExecutionService executionService,
     IAuditLogRepository auditLogs,
+    Notifications.INotificationService notificationService,
     TimeProvider timeProvider,
     ILogger<AutoRecoveryService> logger) : IAutoRecoveryService
 {
@@ -141,7 +142,41 @@ public class AutoRecoveryService(
         // 実行は共通経路を通す(実行直前の再検証と復旧後ヘルスチェックが行われる)
         await executionService.ExecuteAsync(action.Id, ct);
 
+        await NotifyResultAsync(incident, action, ct);
         return action;
+    }
+
+    /// <summary>
+    /// 自動復旧の結果を通知する。人手を介さず実行されるため、成否にかかわらず知らせる。
+    /// 本文にはログ全文・秘密情報を含めない。
+    /// </summary>
+    private async Task NotifyResultAsync(Incident incident, RecoveryAction action, CancellationToken ct)
+    {
+        try
+        {
+            var succeeded = action.Status == RecoveryActionStatus.Succeeded;
+
+            await notificationService.NotifyAsync(new Notifications.NotificationRequest
+            {
+                // 失敗は人手の対応が必要なため重大度を上げる
+                Severity = succeeded
+                    ? Models.Operations.NotificationSeverity.Medium
+                    : Models.Operations.NotificationSeverity.High,
+                Title = succeeded
+                    ? $"自動復旧を実行しました: {action.TargetResource}"
+                    : $"自動復旧に失敗しました: {action.TargetResource}",
+                Body = $"操作: {action.ActionId} / 対象: {action.TargetResource}"
+                    + $" / 結果: {action.ResultMessage ?? action.Status.ToString()}",
+                // インシデントの通知とは別枠で集約する
+                AggregationKey = $"auto-recovery-{incident.SignatureSha256}",
+                IncidentId = incident.Id,
+                TargetId = action.TargetId,
+            }, ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to notify auto recovery result for action {ActionId}.", action.Id);
+        }
     }
 
     private Task RecordDeniedAsync(Incident incident, string actionId, string reason, CancellationToken ct) =>

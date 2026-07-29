@@ -8,6 +8,7 @@ using ServerOperations.Core.Data;
 using ServerOperations.Core.Repositories.Implementations;
 using ServerOperations.Core.Repositories.Interfaces;
 using ServerOperations.Core.Services;
+using ServerOperations.Core.Services.Ai;
 using ServerOperations.Core.Services.Backup;
 using ServerOperations.Core.Services.Notifications;
 using ServerOperations.Worker;
@@ -46,6 +47,15 @@ if (!string.IsNullOrWhiteSpace(connectionString))
     builder.Services.AddSingleton<IAdapterTemplateCatalog, AdapterTemplateCatalog>();
     builder.Services.AddSingleton<IRuleEngine, RuleEngine>();
     builder.Services.AddScoped<IDiagnosisService, DiagnosisService>();
+
+    // AI Gateway(ルール診断と履歴再利用が失敗したときだけ呼ぶ)
+    builder.Services.AddScoped<IAiUsageRecordRepository, AiUsageRecordRepository>();
+    builder.Services.AddScoped<IAiUsageLimitRepository, AiUsageLimitRepository>();
+    builder.Services.AddScoped<IAiApiKeyProvider, WorkerAiApiKeyProvider>();
+    builder.Services.AddScoped<IAiDiagnosisProvider, GeminiDiagnosisProvider>();
+    builder.Services.AddScoped<IAiDiagnosisGateway, AiDiagnosisGateway>();
+    builder.Services.AddHttpClient(GeminiDiagnosisProvider.HttpClientName, client =>
+        client.Timeout = TimeSpan.FromSeconds(125));
 
     // 復旧の実行はWorkerだけが行う
     builder.Services.AddSingleton(

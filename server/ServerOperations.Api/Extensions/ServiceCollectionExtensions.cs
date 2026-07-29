@@ -100,6 +100,17 @@ public static class ServiceCollectionExtensions
             Core.Services.Notifications.NotificationService>();
         services.AddScoped<Core.Services.IRetentionService, Core.Services.RetentionService>();
 
+        // AI Gateway(T-08)。初期状態は無効で、有効化は明示的な設定が必要。
+        services.AddScoped<IAiUsageRecordRepository, AiUsageRecordRepository>();
+        services.AddScoped<IAiUsageLimitRepository, AiUsageLimitRepository>();
+        services.AddScoped<Core.Services.Ai.IAiApiKeyProvider, AiApiKeyProvider>();
+        services.AddScoped<Core.Services.Ai.IAiDiagnosisProvider, Core.Services.Ai.GeminiDiagnosisProvider>();
+        services.AddScoped<Core.Services.Ai.IAiDiagnosisGateway, Core.Services.Ai.AiDiagnosisGateway>();
+        services.AddHttpClient(Core.Services.Ai.GeminiDiagnosisProvider.HttpClientName, client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(125);
+        });
+
         services.AddScoped<IBackupRunRepository, BackupRunRepository>();
         services.AddScoped<Core.Services.Backup.IBackupSettingsProvider, BackupSettingsProvider>();
         services.AddScoped<Core.Services.Backup.IBackupSourceProvider,

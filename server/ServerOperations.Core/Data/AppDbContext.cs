@@ -51,6 +51,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
     public DbSet<BackupRun> BackupRuns => Set<BackupRun>();
 
+    public DbSet<AiUsageRecord> AiUsageRecords => Set<AiUsageRecord>();
+
+    public DbSet<AiUsageLimit> AiUsageLimits => Set<AiUsageLimit>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
