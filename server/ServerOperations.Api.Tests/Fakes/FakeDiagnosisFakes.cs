@@ -78,3 +78,15 @@ public class FakeDiagnosisService : IDiagnosisService
         return Task.FromResult<Diagnosis?>(null);
     }
 }
+
+public class FakeNotificationService : ServerOperations.Core.Services.Notifications.INotificationService
+{
+    public List<ServerOperations.Core.Services.Notifications.NotificationRequest> Requests { get; } = [];
+
+    public Task<Notification?> NotifyAsync(
+        ServerOperations.Core.Services.Notifications.NotificationRequest request, CancellationToken ct = default)
+    {
+        Requests.Add(request);
+        return Task.FromResult<Notification?>(null);
+    }
+}
