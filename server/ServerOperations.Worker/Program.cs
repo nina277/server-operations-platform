@@ -8,6 +8,7 @@ using ServerOperations.Core.Data;
 using ServerOperations.Core.Repositories.Implementations;
 using ServerOperations.Core.Repositories.Interfaces;
 using ServerOperations.Core.Services;
+using ServerOperations.Core.Services.Notifications;
 using ServerOperations.Worker;
 using ServerOperations.Worker.Jobs;
 
@@ -56,6 +57,18 @@ if (!string.IsNullOrWhiteSpace(connectionString))
     builder.Services.AddScoped<IHealthCheckService, HealthCheckService>();
     builder.Services.AddScoped<IRecoveryExecutionService, RecoveryExecutionService>();
 
+    // 通知・保持(T-07)
+    builder.Services.AddScoped<INotificationRepository, NotificationRepository>();
+    builder.Services.AddScoped<IDeviceTokenRepository, DeviceTokenRepository>();
+    builder.Services.AddScoped<ISystemSettingRepository, SystemSettingRepository>();
+    builder.Services.AddScoped<IEncryptedSecretRepository, EncryptedSecretRepository>();
+    builder.Services.AddScoped<INotificationSettingsProvider, WorkerNotificationSettingsProvider>();
+    builder.Services.AddScoped<INotificationChannelSender, EmailNotificationSender>();
+    builder.Services.AddScoped<INotificationChannelSender, PushNotificationSender>();
+    builder.Services.AddScoped<INotificationService, NotificationService>();
+    builder.Services.AddScoped<IRetentionService, RetentionService>();
+    builder.Services.AddScoped<RetentionCleanupJob>();
+
     // アダプター用HTTPクライアント(接続時にも遮断対象IPを検査する)
     builder.Services.AddHttpClient(DockerAdapter.HttpClientName, client =>
             client.Timeout = TimeSpan.FromSeconds(15))
@@ -88,6 +101,9 @@ if (hangfireEnabled)
 
     // 対象別の定期収集ジョブを同期させるスケジューラー
     builder.Services.AddHostedService<CollectionJobScheduler>();
+
+    // 保持期間を超えたデータの削除(既定: 毎日3時)
+    builder.Services.AddHostedService<RetentionJobScheduler>();
 }
 else
 {

@@ -26,6 +26,7 @@ public class TargetCollectionService(
     IHttpAdapter httpAdapter,
     IDataProtectionProvider dataProtectionProvider,
     IDiagnosisService diagnosisService,
+    Notifications.INotificationService notificationService,
     TimeProvider timeProvider,
     ILogger<TargetCollectionService> logger) : ITargetCollectionService
 {
@@ -291,7 +292,41 @@ public class TargetCollectionService(
         };
         await incidents.AddAsync(incident, ct);
         await incidents.SaveChangesAsync(ct);
+
+        await NotifyIncidentAsync(incident, ct);
         return (incident, true);
+    }
+
+    /// <summary>
+    /// インシデントを通知する。本文にはログ全文・秘密情報を含めず、要約のみを渡す。
+    /// 同一障害署名は通知側で集約される。
+    /// </summary>
+    private async Task NotifyIncidentAsync(Incident incident, CancellationToken ct)
+    {
+        try
+        {
+            await notificationService.NotifyAsync(new Notifications.NotificationRequest
+            {
+                Severity = incident.Severity switch
+                {
+                    IncidentSeverity.Critical => Models.Operations.NotificationSeverity.Critical,
+                    IncidentSeverity.High => Models.Operations.NotificationSeverity.High,
+                    IncidentSeverity.Medium => Models.Operations.NotificationSeverity.Medium,
+                    _ => Models.Operations.NotificationSeverity.Low,
+                },
+                Title = incident.Title,
+                Body = $"分類: {incident.Classification}"
+                    + (incident.Service is null ? string.Empty : $" / 対象: {incident.Service}"),
+                AggregationKey = incident.SignatureSha256,
+                IncidentId = incident.Id,
+                TargetId = incident.TargetId,
+            }, ct);
+        }
+        catch (Exception ex)
+        {
+            // 通知の失敗で収集を止めない
+            logger.LogWarning(ex, "Failed to send notification for incident {IncidentId}.", incident.Id);
+        }
     }
 
     private static string Truncate(string value, int maxLength) =>

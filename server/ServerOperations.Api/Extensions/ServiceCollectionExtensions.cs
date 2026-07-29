@@ -85,6 +85,18 @@ public static class ServiceCollectionExtensions
         services.AddScoped<Core.Services.IHealthCheckService, Core.Services.HealthCheckService>();
         services.AddScoped<IRecoveryService, RecoveryService>();
 
+        // 通知・保持(T-07)
+        services.AddScoped<INotificationRepository, NotificationRepository>();
+        services.AddScoped<IDeviceTokenRepository, DeviceTokenRepository>();
+        services.AddScoped<Core.Services.Notifications.INotificationSettingsProvider, NotificationSettingsProvider>();
+        services.AddScoped<Core.Services.Notifications.INotificationChannelSender,
+            Core.Services.Notifications.EmailNotificationSender>();
+        services.AddScoped<Core.Services.Notifications.INotificationChannelSender,
+            Core.Services.Notifications.PushNotificationSender>();
+        services.AddScoped<Core.Services.Notifications.INotificationService,
+            Core.Services.Notifications.NotificationService>();
+        services.AddScoped<Core.Services.IRetentionService, Core.Services.RetentionService>();
+
         // Hangfireクライアント(ジョブサーバーは起動しない)。未設定時は実行を委譲せず警告に留める。
         if (configuration.GetValue("Hangfire:Enabled", defaultValue: true))
         {

@@ -22,9 +22,10 @@ public class TargetCollectionServiceTests
 
     private readonly Microsoft.AspNetCore.DataProtection.EphemeralDataProtectionProvider _dataProtection = new();
     private readonly FakeDiagnosisService _diagnosis = new();
+    private readonly FakeNotificationService _notifications = new();
 
     private TargetCollectionService CreateSut() => new(
-        _targets, _snapshots, _incidents, _logs, _docker, _http, _dataProtection, _diagnosis, _time,
+        _targets, _snapshots, _incidents, _logs, _docker, _http, _dataProtection, _diagnosis, _notifications, _time,
         NullLogger<TargetCollectionService>.Instance);
 
     private void AddDockerTarget(long id = 1)
@@ -154,7 +155,7 @@ public class TargetCollectionServiceTests
         AddHttpTarget();
         var throwingHttp = new ThrowingHttpAdapter();
         var sut = new TargetCollectionService(
-            _targets, _snapshots, _incidents, _logs, _docker, throwingHttp, _dataProtection, _diagnosis, _time,
+            _targets, _snapshots, _incidents, _logs, _docker, throwingHttp, _dataProtection, _diagnosis, _notifications, _time,
             NullLogger<TargetCollectionService>.Instance);
 
         await sut.CollectAsync(1);
@@ -236,6 +237,38 @@ public class TargetCollectionServiceTests
         await sut.CollectAsync(1);
 
         Assert.Equal(2, _diagnosis.Calls.Count);
+    }
+
+    [Fact]
+    public async Task Collect_NewIncident_SendsNotificationWithoutLogContents()
+    {
+        AddDockerTarget();
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "exited", "Exited (137)", 3)];
+        _docker.ContainerLogs["c1"] = "fatal: password=hunter2 stack trace line1 line2 line3";
+
+        await CreateSut().CollectAsync(1);
+
+        var request = Assert.Single(_notifications.Requests);
+        Assert.Equal(NotificationSeverity.High, request.Severity);
+        Assert.Equal(_incidents.Incidents[0].SignatureSha256, request.AggregationKey);
+        // 通知本文にログ全文・秘密情報を含めない
+        Assert.DoesNotContain("hunter2", request.Body);
+        Assert.DoesNotContain("stack trace", request.Body);
+    }
+
+    [Fact]
+    public async Task Collect_ContinuingIncident_DoesNotResendNotification()
+    {
+        AddDockerTarget();
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "exited", "Exited (137)", 3)];
+        var sut = CreateSut();
+
+        await sut.CollectAsync(1);
+        _time.Now = BaseTime.AddMinutes(5);
+        await sut.CollectAsync(1);
+
+        // 既存インシデントへの集約時は通知を作り直さない
+        Assert.Single(_notifications.Requests);
     }
 
     [Fact]
