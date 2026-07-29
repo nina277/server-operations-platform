@@ -122,6 +122,13 @@ public class RecoveryExecutionService(
             return new AdapterConnectionResult(false, "この対象では許可されていない操作です。");
         }
 
+        // コンテナ許可リストも実行直前に再検証する(受付後に設定が変わった場合に備える)
+        if (definition.RequiresTargetResource && !AllowedContainers.IsAllowed(target, action.TargetResource))
+        {
+            return new AdapterConnectionResult(
+                false, "このコンテナは操作許可リストに登録されていません。");
+        }
+
         // Medium操作は有効な承認が必須
         if (definition.RequiresApproval)
         {

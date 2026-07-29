@@ -17,6 +17,7 @@ public class MonitoringTargetConfiguration : IEntityTypeConfiguration<Monitoring
 
         builder.Property(t => t.TemplateId).HasMaxLength(64).IsRequired();
         builder.Property(t => t.Description).HasMaxLength(500);
+        builder.Property(t => t.AllowedContainersJson).HasMaxLength(4000).IsRequired();
 
         builder.Property(t => t.CreatedAt).HasColumnType("datetime(6)");
         builder.Property(t => t.UpdatedAt).HasColumnType("datetime(6)");

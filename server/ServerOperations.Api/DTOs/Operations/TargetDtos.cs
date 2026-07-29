@@ -33,6 +33,12 @@ public record TargetDto
 
     public required bool IsEnabled { get; init; }
 
+    /// <summary>自動復旧の有効/無効(初期値OFF)。</summary>
+    public required bool AutoRecoveryEnabled { get; init; }
+
+    /// <summary>操作を許可するコンテナ名。空の場合はどのコンテナも操作できない。</summary>
+    public required IReadOnlyList<string> AllowedContainers { get; init; }
+
     /// <summary>非秘密の設定値。秘密値(資格情報)は種別名のみconfiguredCredentialsで返す。</summary>
     public required IReadOnlyDictionary<string, string> Settings { get; init; }
 
@@ -73,6 +79,16 @@ public record UpdateTargetRequest
     public string? Description { get; init; }
 
     public bool IsEnabled { get; init; } = true;
+
+    /// <summary>
+    /// 自動復旧の有効/無効。有効にしてもLow操作(コンテナ再起動)のみが自動実行の対象となる。
+    /// </summary>
+    public bool AutoRecoveryEnabled { get; init; }
+
+    /// <summary>
+    /// 操作を許可するコンテナ名。空にするとどのコンテナも操作できなくなる。
+    /// </summary>
+    public List<string> AllowedContainers { get; init; } = [];
 
     public Dictionary<string, string> Settings { get; init; } = [];
 

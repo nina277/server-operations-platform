@@ -7,6 +7,7 @@ using ServerOperations.Core.Models.Auth;
 using ServerOperations.Core.Models.Operations;
 using ServerOperations.Core.Repositories.Interfaces;
 using ServerOperations.Api.Services.Interfaces;
+using ServerOperations.Core.Services;
 
 namespace ServerOperations.Api.Services.Implementations;
 
@@ -91,6 +92,10 @@ public class TargetService(
         var template = catalog.Find(target.TemplateId)
             ?? throw AppException.BadRequest("unknown_template", "不明なテンプレートIDです。");
 
+        // 安全に関わる設定は前後状態を監査へ残す
+        var beforeAutoRecovery = target.AutoRecoveryEnabled;
+        var beforeAllowedContainers = string.Join(',', AllowedContainers.Parse(target));
+
         var duplicate = await targets.FindByNameAsync(request.Name, ct);
         if (duplicate is not null && duplicate.Id != id)
         {
@@ -104,6 +109,8 @@ public class TargetService(
         target.Name = request.Name;
         target.Description = request.Description;
         target.IsEnabled = request.IsEnabled;
+        target.AutoRecoveryEnabled = request.AutoRecoveryEnabled;
+        target.AllowedContainersJson = AllowedContainers.Serialize(request.AllowedContainers);
         target.UpdatedAt = now;
 
         if (target.Profile is null)
@@ -143,10 +150,14 @@ public class TargetService(
 
         await targets.SaveChangesAsync(ct);
 
+        var afterAllowedContainers = string.Join(',', AllowedContainers.Parse(target));
         await audit.RecordAsync(
             "target.update", "MonitoringTarget", target.Id.ToString(), AuditResult.Success,
             actorUserId: currentUser.UserId, actorName: currentUser.Username,
-            details: $"name={target.Name} enabled={target.IsEnabled} settingsKeys=[{string.Join(',', settings.Keys)}]",
+            details: $"name={target.Name} enabled={target.IsEnabled} "
+                + $"settingsKeys=[{string.Join(',', settings.Keys)}] "
+                + $"autoRecovery={beforeAutoRecovery}->{target.AutoRecoveryEnabled} "
+                + $"allowedContainers=[{beforeAllowedContainers}]->[{afterAllowedContainers}]",
             ct: ct);
 
         return ToDto(target);
@@ -329,6 +340,8 @@ public class TargetService(
         TemplateId = target.TemplateId,
         Description = target.Description,
         IsEnabled = target.IsEnabled,
+        AutoRecoveryEnabled = target.AutoRecoveryEnabled,
+        AllowedContainers = AllowedContainers.Parse(target),
         Settings = ReadSettings(target),
         ConfiguredCredentials = target.Credentials.Select(c => c.Kind).OrderBy(k => k).ToList(),
         CreatedAt = target.CreatedAt,

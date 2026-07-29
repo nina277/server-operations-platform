@@ -49,6 +49,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
     public DbSet<DeviceToken> DeviceTokens => Set<DeviceToken>();
 
+    public DbSet<BackupRun> BackupRuns => Set<BackupRun>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);

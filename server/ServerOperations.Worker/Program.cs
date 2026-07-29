@@ -8,6 +8,7 @@ using ServerOperations.Core.Data;
 using ServerOperations.Core.Repositories.Implementations;
 using ServerOperations.Core.Repositories.Interfaces;
 using ServerOperations.Core.Services;
+using ServerOperations.Core.Services.Backup;
 using ServerOperations.Core.Services.Notifications;
 using ServerOperations.Worker;
 using ServerOperations.Worker.Jobs;
@@ -69,6 +70,12 @@ if (!string.IsNullOrWhiteSpace(connectionString))
     builder.Services.AddScoped<IRetentionService, RetentionService>();
     builder.Services.AddScoped<RetentionCleanupJob>();
 
+    builder.Services.AddScoped<IBackupRunRepository, BackupRunRepository>();
+    builder.Services.AddScoped<IBackupSettingsProvider, WorkerBackupSettingsProvider>();
+    builder.Services.AddScoped<IBackupSourceProvider, DatabaseBackupSourceProvider>();
+    builder.Services.AddScoped<IBackupService, BackupService>();
+    builder.Services.AddScoped<BackupJob>();
+
     // アダプター用HTTPクライアント(接続時にも遮断対象IPを検査する)
     builder.Services.AddHttpClient(DockerAdapter.HttpClientName, client =>
             client.Timeout = TimeSpan.FromSeconds(15))
@@ -104,6 +111,9 @@ if (hangfireEnabled)
 
     // 保持期間を超えたデータの削除(既定: 毎日3時)
     builder.Services.AddHostedService<RetentionJobScheduler>();
+
+    // 定期バックアップ(既定: 毎日2時)
+    builder.Services.AddHostedService<BackupJobScheduler>();
 }
 else
 {

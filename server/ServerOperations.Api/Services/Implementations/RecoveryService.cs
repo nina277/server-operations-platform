@@ -50,8 +50,9 @@ public class RecoveryService(
             throw AppException.BadRequest("target_resource_required", "操作対象を指定してください。");
         }
 
-        // 承認時点でも対象テンプレートの許可操作を検証する
-        await EnsureActionAllowedForTargetAsync(incident.TargetId, definition.ActionId, ct);
+        // 承認時点でも対象テンプレートの許可操作とコンテナ許可リストを検証する
+        await EnsureActionAllowedForTargetAsync(
+            incident.TargetId, definition.ActionId, request.TargetResource, definition, ct);
 
         var now = timeProvider.GetUtcNow().UtcDateTime;
         var approval = new RecoveryApproval
@@ -128,7 +129,8 @@ public class RecoveryService(
             throw AppException.BadRequest("target_resource_required", "操作対象を指定してください。");
         }
 
-        await EnsureActionAllowedForTargetAsync(incident.TargetId, definition.ActionId, ct);
+        await EnsureActionAllowedForTargetAsync(
+            incident.TargetId, definition.ActionId, request.TargetResource, definition, ct);
 
         // Medium操作の承認検証: 承認とインシデント・アクション・対象リソースの一致を確認する
         RecoveryApproval? approval = null;
@@ -243,8 +245,16 @@ public class RecoveryService(
         actionCatalog.Find(actionId)
             ?? throw AppException.BadRequest("unknown_action", "不明な復旧アクションです。");
 
-    /// <summary>対象テンプレートがそのアクションを許可しているか検証する。</summary>
-    private async Task EnsureActionAllowedForTargetAsync(long targetId, string actionId, CancellationToken ct)
+    /// <summary>
+    /// 対象テンプレートがそのアクションを許可しているか、
+    /// および操作対象コンテナが許可リストに含まれるかを検証する。
+    /// </summary>
+    private async Task EnsureActionAllowedForTargetAsync(
+        long targetId,
+        string actionId,
+        string? targetResource,
+        RecoveryActionDefinition definition,
+        CancellationToken ct)
     {
         var target = await targets.FindByIdAsync(targetId, ct)
             ?? throw AppException.NotFound("target_not_found", "監視対象が見つかりません。");
@@ -254,6 +264,19 @@ public class RecoveryService(
         {
             throw AppException.Forbidden(
                 "action_not_allowed_for_target", "この対象では許可されていない操作です。");
+        }
+
+        // コンテナを操作するアクションは、対象ごとの許可リストに含まれるものだけを認める
+        if (definition.RequiresTargetResource && !AllowedContainers.IsAllowed(target, targetResource))
+        {
+            await audit.RecordAsync(
+                "recovery.action.denied", "MonitoringTarget", targetId.ToString(), AuditResult.Denied,
+                actorUserId: currentUser.UserId, actorName: currentUser.Username,
+                details: $"container not in allow list: {targetResource}", ct: ct);
+
+            throw AppException.Forbidden(
+                "container_not_allowed",
+                "このコンテナは操作許可リストに登録されていません。設定画面で追加してください。");
         }
     }
 }
