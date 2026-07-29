@@ -21,7 +21,9 @@ public class DiagnosisService(
     IAdapterTemplateCatalog catalog,
     IRuleEngine ruleEngine,
     TimeProvider timeProvider,
-    ILogger<DiagnosisService> logger) : IDiagnosisService
+    ILogger<DiagnosisService> logger,
+    // AI診断は任意。未登録の場合はルール診断と履歴再利用のみで動作する。
+    Ai.IAiDiagnosisGateway? aiGateway = null) : IDiagnosisService
 {
     public async Task<Diagnosis?> DiagnoseAsync(
         Incident incident, DiagnosticContext context, CancellationToken ct = default)
@@ -74,6 +76,21 @@ public class DiagnosisService(
             await diagnoses.AddAsync(diagnosis, ct);
             await diagnoses.SaveChangesAsync(ct);
             return diagnosis;
+        }
+
+        // 3) ルール診断と履歴再利用が失敗したときだけ外部AIを呼ぶ。
+        //    AIが無効・上限到達・失敗の場合はnullのまま縮退する。
+        if (aiGateway is not null)
+        {
+            var aiResult = await aiGateway.DiagnoseAsync(incident, context.LogExcerpt, ct);
+            if (aiResult.Diagnosis is not null)
+            {
+                return aiResult.Diagnosis;
+            }
+
+            logger.LogInformation(
+                "AI diagnosis skipped for incident {IncidentId}: {Reason} {Message}",
+                incident.Id, aiResult.SkipReason, aiResult.Message);
         }
 
         logger.LogInformation(

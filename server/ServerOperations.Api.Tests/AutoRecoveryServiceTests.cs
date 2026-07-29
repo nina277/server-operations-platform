@@ -14,13 +14,21 @@ public class AutoRecoveryServiceTests
     private readonly FakeRecoveryActionRepository _actions = new();
     private readonly FakeAuditLogRepository _auditLogs = new();
     private readonly RecordingExecutionService _execution = new();
+    private readonly FakeNotificationService _notifications = new();
     private readonly TestTimeProvider _time = new(BaseTime);
     private readonly RecoveryLimits _limits = new();
 
-    private AutoRecoveryService CreateSut() => new(
+    private AutoRecoveryService CreateSut()
+    {
+        // 実行後の状態を検証できるよう、Fake実行サービスへリポジトリを渡す
+        _execution.Actions = _actions;
+        return CreateSutCore();
+    }
+
+    private AutoRecoveryService CreateSutCore() => new(
         _actions, new RecoveryActionCatalog(),
         new RecoveryRateLimiter(_actions, _limits, _time),
-        _execution, _auditLogs, _time, NullLogger<AutoRecoveryService>.Instance);
+        _execution, _auditLogs, _notifications, _time, NullLogger<AutoRecoveryService>.Instance);
 
     private static MonitoringTarget Target(
         bool autoRecoveryEnabled = true, params string[] allowedContainers) => new()
@@ -211,13 +219,75 @@ public class AutoRecoveryServiceTests
         Assert.False(string.IsNullOrEmpty(entry.UserAgent));
     }
 
+    [Fact]
+    public async Task TryRecover_Success_NotifiesResult()
+    {
+        _execution.ResultStatus = RecoveryActionStatus.Succeeded;
+
+        await CreateSut().TryRecoverAsync(Target(), Incident(), Diagnosis());
+
+        var request = Assert.Single(_notifications.Requests);
+        Assert.Equal(NotificationSeverity.Medium, request.Severity);
+        Assert.Contains("自動復旧を実行しました", request.Title);
+    }
+
+    [Fact]
+    public async Task TryRecover_Failure_NotifiesWithHighSeverity()
+    {
+        // 自動復旧が失敗した場合は人手の対応が必要なため重大度を上げる
+        _execution.ResultStatus = RecoveryActionStatus.Failed;
+
+        await CreateSut().TryRecoverAsync(Target(), Incident(), Diagnosis());
+
+        var request = Assert.Single(_notifications.Requests);
+        Assert.Equal(NotificationSeverity.High, request.Severity);
+        Assert.Contains("自動復旧に失敗しました", request.Title);
+    }
+
+    [Fact]
+    public async Task TryRecover_Blocked_DoesNotNotifyResult()
+    {
+        // 実行していない(ブロックされた)場合は結果通知を出さない
+        _actions.Actions.Add(new RecoveryAction
+        {
+            Id = 1,
+            IncidentId = 1,
+            TargetId = 1,
+            ActionId = RecoveryActionCatalog.RestartAllowedContainer,
+            TargetResource = "web",
+            RiskLevel = ActionRiskLevel.Low,
+            Status = RecoveryActionStatus.Succeeded,
+            RequestedAt = BaseTime.UtcDateTime.AddMinutes(-2),
+            CompletedAt = BaseTime.UtcDateTime.AddMinutes(-2),
+        });
+
+        await CreateSut().TryRecoverAsync(Target(), Incident(occurrenceCount: 2), Diagnosis());
+
+        Assert.Empty(_notifications.Requests);
+    }
+
     private sealed class RecordingExecutionService : IRecoveryExecutionService
     {
         public List<long> Executed { get; } = [];
 
+        /// <summary>実行後に設定する状態(通知内容の検証用)。</summary>
+        public RecoveryActionStatus ResultStatus { get; set; } = RecoveryActionStatus.Succeeded;
+
+        public FakeRecoveryActionRepository? Actions { get; set; }
+
         public Task ExecuteAsync(long recoveryActionId, CancellationToken ct = default)
         {
             Executed.Add(recoveryActionId);
+
+            var action = Actions?.Actions.FirstOrDefault(a => a.Id == recoveryActionId);
+            if (action is not null)
+            {
+                action.Status = ResultStatus;
+                action.ResultMessage = ResultStatus == RecoveryActionStatus.Succeeded
+                    ? "コンテナ web のrestartに成功しました。"
+                    : "コンテナ web のrestartに失敗しました。";
+            }
+
             return Task.CompletedTask;
         }
     }
