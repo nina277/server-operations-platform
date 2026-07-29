@@ -12,6 +12,16 @@
     docs/         ドキュメント
     scripts/      運用・開発補助スクリプト
 
+## ドキュメント
+
+| 文書 | 内容 |
+|---|---|
+| [docs/verification.md](docs/verification.md) | 検証手順と成功基準の測り方(SC-01〜SC-05、ST-AI) |
+| [docs/release.md](docs/release.md) | リリース手順・切り戻し・配置後の安全確認 |
+| [docs/backlog.md](docs/backlog.md) | 後続チケットへ繰り越した事項 |
+| [deploy/lab-aioops/README.md](deploy/lab-aioops/README.md) | 検証専用環境の構成と起動方法 |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | ブランチ戦略(GitHub Flow)とコミット規約 |
+
 ## 技術構成
 
 | 領域 | 採用技術 |
@@ -77,11 +87,13 @@ Frontend:
 
     cd server && dotnet build && dotnet test
     cd client-web && npm run test:unit -- --run && npm run lint && npm run type-check
+    ./scripts/check-release-guards.sh
 
 ## CI
 
 `main` へのPull Requestとpushで GitHub Actions(`.github/workflows/ci.yml`)が自動実行される。
 
+- Release guards: `latest`タグ・Dockerソケットの扱い・`.env`・EF Coreの版を検査する
 - Backend: `dotnet restore` → `dotnet build` → `dotnet test`
 - Frontend: `npm ci` → `lint` → `type-check` → `test:unit` → `build`
 
