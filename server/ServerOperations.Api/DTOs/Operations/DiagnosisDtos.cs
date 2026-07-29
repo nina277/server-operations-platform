@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using ServerOperations.Core.Models.Operations;
 using ServerOperations.Core.Services;
 
@@ -131,4 +132,66 @@ public record DiagnosisDto
         RecommendedActionAllowed = diagnosis.RecommendedActionAllowed,
         CreatedAt = diagnosis.CreatedAt,
     };
+}
+
+/// <summary>診断ルールの作成・更新の入力。条件は種別ごとの構造で受け取る。</summary>
+public record SaveDiagnosticRuleRequest
+{
+    [Required]
+    [MaxLength(100)]
+    public required string Name { get; init; }
+
+    [Required]
+    [MaxLength(64)]
+    public required string Classification { get; init; }
+
+    /// <summary>State / Threshold / Regex。</summary>
+    [Required]
+    [MaxLength(16)]
+    public required string RuleType { get; init; }
+
+    /// <summary>条件(JSON)。保存前に種別ごとに検証する。</summary>
+    [Required]
+    [MaxLength(2000)]
+    public required string ConditionJson { get; init; }
+
+    /// <summary>Critical / High / Medium / Low。</summary>
+    [Required]
+    [MaxLength(16)]
+    public required string Severity { get; init; }
+
+    /// <summary>推奨アクションID。許可リストにあるIDのみ。nullなら通知のみ。</summary>
+    [MaxLength(64)]
+    public string? RecommendedActionId { get; init; }
+
+    [Range(1, 1000)]
+    public int Priority { get; init; } = 100;
+
+    /// <summary>根拠テンプレート。{field} {value} {expected} を実値で置き換える。</summary>
+    [Required]
+    [MaxLength(500)]
+    public required string RationaleTemplate { get; init; }
+
+    public bool IsEnabled { get; init; } = true;
+}
+
+public record UpdateRuleEnabledRequest
+{
+    public required bool IsEnabled { get; init; }
+}
+
+/// <summary>ルールを書くときに選べる値。画面の入力欄を組み立てるために返す。</summary>
+public record RuleEditorOptionsDto
+{
+    /// <summary>条件で参照できる項目。 </summary>
+    public required IReadOnlyList<string> Fields { get; init; }
+
+    public required IReadOnlyList<string> Operators { get; init; }
+
+    public required IReadOnlyList<string> RuleTypes { get; init; }
+
+    public required IReadOnlyList<string> Severities { get; init; }
+
+    /// <summary>推奨アクションに指定できるID(復旧の許可リスト)。</summary>
+    public required IReadOnlyList<string> RecommendedActionIds { get; init; }
 }

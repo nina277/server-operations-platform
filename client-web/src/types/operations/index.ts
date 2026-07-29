@@ -226,6 +226,48 @@ export interface DiagnosticRule {
   isEnabled: boolean
 }
 
+export type DiagnosticRuleType = 'State' | 'Threshold' | 'Regex'
+
+/** 条件はルール種別ごとの構造で扱う。画面では自由記述のJSONを書かせない。 */
+export interface StateCondition {
+  field: string
+  equalsAny: string[]
+}
+
+export interface ThresholdCondition {
+  field: string
+  operator: string
+  value: number
+}
+
+export interface RegexCondition {
+  field: string
+  pattern: string
+}
+
+export interface SaveDiagnosticRuleRequest {
+  name: string
+  classification: string
+  ruleType: DiagnosticRuleType
+  /** 条件のJSON。画面のフォームから組み立てる。 */
+  conditionJson: string
+  severity: Severity
+  /** 復旧の許可リストにあるIDのみ。nullなら通知のみ。 */
+  recommendedActionId: string | null
+  priority: number
+  rationaleTemplate: string
+  isEnabled: boolean
+}
+
+/** ルールを書くときに選べる値。サーバー側の定義をそのまま使う。 */
+export interface RuleEditorOptions {
+  fields: string[]
+  operators: string[]
+  ruleTypes: DiagnosticRuleType[]
+  severities: Severity[]
+  recommendedActionIds: string[]
+}
+
 export interface RuleTestRequest {
   containerState?: string | null
   containerName?: string | null

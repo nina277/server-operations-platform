@@ -177,6 +177,33 @@ export default {
     condition: '条件',
     enabled: '有効',
     disabled: '無効',
+    add: 'ルールを追加',
+    edit: 'ルールを編集',
+    noAction: '操作を推奨しない(通知のみ)',
+    types: {
+      State: '状態が一致する',
+      Threshold: '数値がしきい値を超える',
+      Regex: 'ログが文字列に一致する',
+    },
+    priorityHelp: '小さいほど先に評価されます。',
+    recommendedActionHelp:
+      '指定できるのは復旧の許可リストにある操作だけです。自由な文字列は登録できません。',
+    conditionField: '対象の項目',
+    conditionFieldHelp: '収集した値のみを参照できます。',
+    conditionEqualsAny: '一致する値',
+    conditionEqualsAnyPlaceholder: '1行に1つずつ入力(例: exited)',
+    conditionOperator: '比較',
+    conditionValue: 'しきい値',
+    conditionPattern: 'パターン(正規表現)',
+    conditionPatternHelp:
+      '評価に時間がかかりすぎるパターンは保存できません。単純な書き方にしてください。',
+    conditionPreview: '保存される条件:',
+    rationaleTemplate: '根拠の書き方',
+    rationaleTemplateHelp: '{field} {value} {expected} が実際の値に置き換わります。',
+    saveWarning:
+      'ルールは自動復旧の入口です。条件を緩めると意図しない自動実行につながるため、保存前に試験で確かめてください。',
+    testSavedOnly:
+      '試験は保存済みで有効なルールに対して行います。編集中の内容を確かめるには、先に保存してください。',
     test: 'ルールを試す',
     testDescription:
       '収集値を仮に入力して、どのルールが当たるかを確認します。保存も実行もしません。',

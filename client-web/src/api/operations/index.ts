@@ -22,8 +22,10 @@ import type {
   RecoveryAction,
   RecoveryActionDefinition,
   RediagnoseResult,
+  RuleEditorOptions,
   RuleTestRequest,
   RuleTestResponse,
+  SaveDiagnosticRuleRequest,
   Target,
   TargetCapabilities,
   UpdateAiLimitsRequest,
@@ -179,10 +181,48 @@ export async function fetchDiagnosticRules(): Promise<DiagnosticRule[]> {
   return unwrap(await http.get<ApiResponse<DiagnosticRule[]>>('/api/v1/diagnostic-rules'))
 }
 
+export async function fetchDiagnosticRule(id: number): Promise<DiagnosticRule> {
+  return unwrap(await http.get<ApiResponse<DiagnosticRule>>(`/api/v1/diagnostic-rules/${id}`))
+}
+
+/** ルールを書くときに選べる値。条件の項目や演算子を画面で作り直さない。 */
+export async function fetchRuleEditorOptions(): Promise<RuleEditorOptions> {
+  return unwrap(
+    await http.get<ApiResponse<RuleEditorOptions>>('/api/v1/diagnostic-rules/editor-options'),
+  )
+}
+
 /** ルールの判定を試す。保存も実行もしない。 */
 export async function testDiagnosticRules(request: RuleTestRequest): Promise<RuleTestResponse> {
   return unwrap(
     await http.post<ApiResponse<RuleTestResponse>>('/api/v1/diagnostic-rules/test', request),
+  )
+}
+
+export async function createDiagnosticRule(
+  request: SaveDiagnosticRuleRequest,
+): Promise<DiagnosticRule> {
+  return unwrap(await http.post<ApiResponse<DiagnosticRule>>('/api/v1/diagnostic-rules', request))
+}
+
+export async function updateDiagnosticRule(
+  id: number,
+  request: SaveDiagnosticRuleRequest,
+): Promise<DiagnosticRule> {
+  return unwrap(
+    await http.put<ApiResponse<DiagnosticRule>>(`/api/v1/diagnostic-rules/${id}`, request),
+  )
+}
+
+/** ルールを消さずに止める。 */
+export async function setDiagnosticRuleEnabled(
+  id: number,
+  isEnabled: boolean,
+): Promise<DiagnosticRule> {
+  return unwrap(
+    await http.patch<ApiResponse<DiagnosticRule>>(`/api/v1/diagnostic-rules/${id}/enabled`, {
+      isEnabled,
+    }),
   )
 }
 
