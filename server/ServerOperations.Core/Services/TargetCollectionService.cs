@@ -25,6 +25,7 @@ public class TargetCollectionService(
     IDockerAdapter dockerAdapter,
     IHttpAdapter httpAdapter,
     IDataProtectionProvider dataProtectionProvider,
+    IDiagnosisService diagnosisService,
     TimeProvider timeProvider,
     ILogger<TargetCollectionService> logger) : ITargetCollectionService
 {
@@ -112,7 +113,7 @@ public class TargetCollectionService(
                 logExcerpt = string.Empty;
             }
 
-            var incident = await UpsertIncidentAsync(
+            var (incident, shouldDiagnose) = await UpsertIncidentAsync(
                 targetId,
                 classification: "ContainerStopped",
                 service: container.Name,
@@ -132,6 +133,17 @@ public class TargetCollectionService(
                     MaskedContent = Truncate(LogMasker.MaskSecrets(logExcerpt), 16000),
                 }, ct);
                 await incidentLogs.SaveChangesAsync(ct);
+            }
+
+            if (shouldDiagnose)
+            {
+                await diagnosisService.DiagnoseAsync(incident, new DiagnosticContext
+                {
+                    ContainerState = container.State,
+                    ContainerName = container.Name,
+                    RestartCount = container.RestartCount,
+                    LogExcerpt = LogMasker.MaskSecrets(logExcerpt),
+                }, ct);
             }
         }
     }
@@ -178,7 +190,7 @@ public class TargetCollectionService(
 
         if (!result.Success)
         {
-            await UpsertIncidentAsync(
+            var (incident, shouldDiagnose) = await UpsertIncidentAsync(
                 targetId,
                 classification: "HttpUnavailable",
                 service: null,
@@ -186,6 +198,16 @@ public class TargetCollectionService(
                 severity: IncidentSeverity.High,
                 logExcerpt: result.Message,
                 ct);
+
+            if (shouldDiagnose)
+            {
+                await diagnosisService.DiagnoseAsync(incident, new DiagnosticContext
+                {
+                    HttpSuccess = false,
+                    HttpLatencyMs = result.LatencyMs,
+                    LogExcerpt = result.Message,
+                }, ct);
+            }
         }
     }
 
@@ -202,7 +224,7 @@ public class TargetCollectionService(
         }, ct);
         await snapshots.SaveChangesAsync(ct);
 
-        await UpsertIncidentAsync(
+        var (incident, shouldDiagnose) = await UpsertIncidentAsync(
             targetId,
             classification: "CollectionFailed",
             service: null,
@@ -210,13 +232,18 @@ public class TargetCollectionService(
             severity: IncidentSeverity.Medium,
             logExcerpt: null,
             ct);
+
+        if (shouldDiagnose)
+        {
+            await diagnosisService.DiagnoseAsync(incident, new DiagnosticContext(), ct);
+        }
     }
 
     /// <summary>
     /// 障害署名で既存インシデントを検索し、あれば再発として関連付け(回数加算)、なければ新規作成する。
     /// Resolved状態で再発した場合はOpenへ戻す。
     /// </summary>
-    private async Task<Incident> UpsertIncidentAsync(
+    private async Task<(Incident Incident, bool ShouldDiagnose)> UpsertIncidentAsync(
         long targetId,
         string classification,
         string? service,
@@ -234,14 +261,17 @@ public class TargetCollectionService(
             existing.OccurrenceCount++;
             existing.LastOccurredAt = now;
             existing.UpdatedAt = now;
-            if (existing.Status == IncidentStatus.Resolved)
+
+            // Resolvedからの再発時のみ再診断する(継続中の単純な再検知では診断を増やさない)
+            var reopened = existing.Status == IncidentStatus.Resolved;
+            if (reopened)
             {
                 existing.Status = IncidentStatus.Open;
                 existing.ResolvedAt = null;
             }
 
             await incidents.SaveChangesAsync(ct);
-            return existing;
+            return (existing, reopened);
         }
 
         var incident = new Incident
@@ -261,7 +291,7 @@ public class TargetCollectionService(
         };
         await incidents.AddAsync(incident, ct);
         await incidents.SaveChangesAsync(ct);
-        return incident;
+        return (incident, true);
     }
 
     private static string Truncate(string value, int maxLength) =>

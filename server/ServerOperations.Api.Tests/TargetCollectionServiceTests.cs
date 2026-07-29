@@ -21,9 +21,10 @@ public class TargetCollectionServiceTests
     private readonly TestTimeProvider _time = new(BaseTime);
 
     private readonly Microsoft.AspNetCore.DataProtection.EphemeralDataProtectionProvider _dataProtection = new();
+    private readonly FakeDiagnosisService _diagnosis = new();
 
     private TargetCollectionService CreateSut() => new(
-        _targets, _snapshots, _incidents, _logs, _docker, _http, _dataProtection, _time,
+        _targets, _snapshots, _incidents, _logs, _docker, _http, _dataProtection, _diagnosis, _time,
         NullLogger<TargetCollectionService>.Instance);
 
     private void AddDockerTarget(long id = 1)
@@ -153,7 +154,7 @@ public class TargetCollectionServiceTests
         AddHttpTarget();
         var throwingHttp = new ThrowingHttpAdapter();
         var sut = new TargetCollectionService(
-            _targets, _snapshots, _incidents, _logs, _docker, throwingHttp, _dataProtection, _time,
+            _targets, _snapshots, _incidents, _logs, _docker, throwingHttp, _dataProtection, _diagnosis, _time,
             NullLogger<TargetCollectionService>.Instance);
 
         await sut.CollectAsync(1);
@@ -186,6 +187,55 @@ public class TargetCollectionServiceTests
         var options = Assert.Single(_http.CalledOptions);
         Assert.Equal("monitor", options.BasicAuthUser);
         Assert.Equal("collect-pass", options.BasicAuthPassword);
+    }
+
+    [Fact]
+    public async Task Collect_NewIncident_TriggersDiagnosisWithMaskedContext()
+    {
+        AddDockerTarget();
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "exited", "Exited (137)", 3)];
+        _docker.ContainerLogs["c1"] = "OOM killed: password=hunter2";
+
+        await CreateSut().CollectAsync(1);
+
+        var call = Assert.Single(_diagnosis.Calls);
+        Assert.Equal("exited", call.Context.ContainerState);
+        Assert.Equal("web", call.Context.ContainerName);
+        Assert.Equal(3, call.Context.RestartCount);
+        // 診断へ渡すログもマスク済み
+        Assert.DoesNotContain("hunter2", call.Context.LogExcerpt);
+    }
+
+    [Fact]
+    public async Task Collect_ContinuingIncident_DoesNotRediagnose()
+    {
+        AddDockerTarget();
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "exited", "Exited (137)", 3)];
+        var sut = CreateSut();
+
+        await sut.CollectAsync(1);
+        _time.Now = BaseTime.AddMinutes(5);
+        await sut.CollectAsync(1);
+
+        // 継続中の同一障害では診断を重ねない
+        Assert.Single(_diagnosis.Calls);
+    }
+
+    [Fact]
+    public async Task Collect_RecurrenceAfterResolved_TriggersRediagnosis()
+    {
+        AddDockerTarget();
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "exited", "Exited (137)", 3)];
+        var sut = CreateSut();
+
+        await sut.CollectAsync(1);
+        var incident = Assert.Single(_incidents.Incidents);
+        incident.Status = IncidentStatus.Resolved;
+
+        _time.Now = BaseTime.AddMinutes(10);
+        await sut.CollectAsync(1);
+
+        Assert.Equal(2, _diagnosis.Calls.Count);
     }
 
     [Fact]
