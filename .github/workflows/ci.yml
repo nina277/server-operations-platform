@@ -7,6 +7,16 @@ on:
     branches: [main]
 
 jobs:
+  guards:
+    name: Release guards
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 禁止事項のうち機械的に確かめられるもの(latestタグ・Dockerソケット・.env・EF Coreの版)
+      - name: Check release guards
+        run: ./scripts/check-release-guards.sh
+
   backend:
     name: Backend (.NET)
     runs-on: ubuntu-latest

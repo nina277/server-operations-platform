@@ -112,3 +112,32 @@ public class FakeHealthCheckService : IHealthCheckService
         });
     }
 }
+
+/// <summary>
+/// 復旧の実行を記録するだけのFake。実際にはコンテナを操作しない。
+/// </summary>
+public class RecordingExecutionService : IRecoveryExecutionService
+{
+    public List<long> Executed { get; } = [];
+
+    /// <summary>実行後に設定する状態(通知内容の検証用)。</summary>
+    public RecoveryActionStatus ResultStatus { get; set; } = RecoveryActionStatus.Succeeded;
+
+    public FakeRecoveryActionRepository? Actions { get; set; }
+
+    public Task ExecuteAsync(long recoveryActionId, CancellationToken ct = default)
+    {
+        Executed.Add(recoveryActionId);
+
+        var action = Actions?.Actions.FirstOrDefault(a => a.Id == recoveryActionId);
+        if (action is not null)
+        {
+            action.Status = ResultStatus;
+            action.ResultMessage = ResultStatus == RecoveryActionStatus.Succeeded
+                ? $"コンテナ {action.TargetResource} のrestartに成功しました。"
+                : $"コンテナ {action.TargetResource} のrestartに失敗しました。";
+        }
+
+        return Task.CompletedTask;
+    }
+}
