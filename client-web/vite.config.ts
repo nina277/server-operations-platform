@@ -6,13 +6,26 @@ import vueDevTools from 'vite-plugin-vue-devtools'
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [
-    vue(),
-    vueDevTools(),
-  ],
+  plugins: [vue(), vueDevTools()],
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
+    },
+  },
+  build: {
+    rollupOptions: {
+      input: {
+        index: fileURLToPath(new URL('./index.html', import.meta.url)),
+        // Push通知のService Worker。外部CDNへ依存させず、依存ごとバンドルする。
+        'firebase-messaging-sw': fileURLToPath(
+          new URL('./src/firebase-messaging-sw.ts', import.meta.url),
+        ),
+      },
+      output: {
+        // Service Workerは配信元の直下に固定名で置く必要がある
+        entryFileNames: (chunk) =>
+          chunk.name === 'firebase-messaging-sw' ? '[name].js' : 'assets/[name]-[hash].js',
+      },
     },
   },
   server: {

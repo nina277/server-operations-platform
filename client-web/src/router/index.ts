@@ -34,9 +34,25 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/operations/TargetsView.vue'),
       },
       {
+        path: 'targets/new',
+        name: 'target-new',
+        component: () => import('@/views/operations/TargetNewView.vue'),
+        meta: { roles: ['OperatorAdmin'] },
+      },
+      {
+        path: 'targets/:id(\\d+)',
+        name: 'target-detail',
+        component: () => import('@/views/operations/TargetDetailView.vue'),
+      },
+      {
         path: 'incidents',
         name: 'incidents',
         component: () => import('@/views/operations/IncidentsView.vue'),
+      },
+      {
+        path: 'incidents/:id(\\d+)',
+        name: 'incident-detail',
+        component: () => import('@/views/operations/IncidentDetailView.vue'),
       },
       {
         path: 'rules',

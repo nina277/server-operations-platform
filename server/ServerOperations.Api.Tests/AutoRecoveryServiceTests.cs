@@ -304,5 +304,57 @@ public class FakeAuditLogRepository : IAuditLogRepository
         return Task.CompletedTask;
     }
 
+    public Task<(List<AuditLog> Items, long TotalCount)> SearchAsync(
+        AuditLogFilter filter, int skip, int take, CancellationToken ct = default)
+    {
+        var matched = Logs.Where(a => Matches(a, filter)).ToList();
+
+        var items = matched
+            .OrderByDescending(a => a.OccurredAt)
+            .ThenByDescending(a => a.Id)
+            .Skip(skip)
+            .Take(take)
+            .ToList();
+
+        return Task.FromResult((items, (long)matched.Count));
+    }
+
+    public Task<(List<string> TargetTypes, List<string> Actions)> GetFilterOptionsAsync(
+        CancellationToken ct = default) =>
+        Task.FromResult((
+            Logs.Select(a => a.TargetType).Distinct().Order().ToList(),
+            Logs.Select(a => a.Action).Distinct().Order().ToList()));
+
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
+
+    private static bool Matches(AuditLog log, AuditLogFilter filter)
+    {
+        if (!string.IsNullOrWhiteSpace(filter.ActorName)
+            && (log.ActorName is null || !log.ActorName.Contains(filter.ActorName.Trim())))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(filter.TargetType) && log.TargetType != filter.TargetType)
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(filter.Action) && log.Action != filter.Action)
+        {
+            return false;
+        }
+
+        if (filter.Result is { } result && log.Result != result)
+        {
+            return false;
+        }
+
+        if (filter.OccurredFromUtc is { } from && log.OccurredAt < from)
+        {
+            return false;
+        }
+
+        return filter.OccurredToUtc is not { } to || log.OccurredAt <= to;
+    }
 }

@@ -139,3 +139,34 @@ public record HealthCheckDto
         CheckedAt = check.CheckedAt,
     };
 }
+
+/// <summary>復旧アクションの定義(許可リスト)。危険度と承認要否を画面へ伝える。</summary>
+public record RecoveryActionDefinitionDto
+{
+    public required string ActionId { get; init; }
+
+    public required string Name { get; init; }
+
+    public required string RiskLevel { get; init; }
+
+    public required bool RequiresApproval { get; init; }
+
+    public required bool RequiresIdempotencyKey { get; init; }
+
+    /// <summary>trueなら操作対象(コンテナ名など)の指定が必要。</summary>
+    public required bool RequiresTargetResource { get; init; }
+
+    public required string Description { get; init; }
+
+    public static RecoveryActionDefinitionDto From(
+        ServerOperations.Core.Services.RecoveryActionDefinition d) => new()
+    {
+        ActionId = d.ActionId,
+        Name = d.Name,
+        RiskLevel = d.RiskLevel.ToString(),
+        RequiresApproval = d.RequiresApproval,
+        RequiresIdempotencyKey = d.RequiresIdempotencyKey,
+        RequiresTargetResource = d.RequiresTargetResource,
+        Description = d.Description,
+    };
+}
