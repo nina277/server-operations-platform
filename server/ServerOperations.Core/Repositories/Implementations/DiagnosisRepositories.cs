@@ -13,7 +13,18 @@ public class DiagnosticRuleRepository(AppDbContext db) : IDiagnosticRuleReposito
     public Task<List<DiagnosticRule>> GetAllAsync(CancellationToken ct = default) =>
         db.DiagnosticRules.OrderBy(r => r.Priority).ThenBy(r => r.Id).ToListAsync(ct);
 
+    public Task<DiagnosticRule?> FindByIdAsync(long id, CancellationToken ct = default) =>
+        db.DiagnosticRules.FirstOrDefaultAsync(r => r.Id == id, ct);
+
+    public Task<bool> ExistsByNameAsync(
+        string name, long? excludeId = null, CancellationToken ct = default) =>
+        db.DiagnosticRules.AnyAsync(
+            r => r.Name == name && (excludeId == null || r.Id != excludeId), ct);
+
     public Task<bool> AnyAsync(CancellationToken ct = default) => db.DiagnosticRules.AnyAsync(ct);
+
+    public async Task AddAsync(DiagnosticRule rule, CancellationToken ct = default) =>
+        await db.DiagnosticRules.AddAsync(rule, ct);
 
     public async Task AddRangeAsync(IEnumerable<DiagnosticRule> rules, CancellationToken ct = default) =>
         await db.DiagnosticRules.AddRangeAsync(rules, ct);

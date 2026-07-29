@@ -14,7 +14,21 @@ public class FakeDiagnosticRuleRepository : IDiagnosticRuleRepository
     public Task<List<DiagnosticRule>> GetAllAsync(CancellationToken ct = default) =>
         Task.FromResult(Rules.OrderBy(r => r.Priority).ThenBy(r => r.Id).ToList());
 
+    public Task<DiagnosticRule?> FindByIdAsync(long id, CancellationToken ct = default) =>
+        Task.FromResult(Rules.FirstOrDefault(r => r.Id == id));
+
+    public Task<bool> ExistsByNameAsync(
+        string name, long? excludeId = null, CancellationToken ct = default) =>
+        Task.FromResult(Rules.Any(r => r.Name == name && (excludeId is null || r.Id != excludeId)));
+
     public Task<bool> AnyAsync(CancellationToken ct = default) => Task.FromResult(Rules.Count > 0);
+
+    public Task AddAsync(DiagnosticRule rule, CancellationToken ct = default)
+    {
+        rule.Id = Rules.Count + 1;
+        Rules.Add(rule);
+        return Task.CompletedTask;
+    }
 
     public Task AddRangeAsync(IEnumerable<DiagnosticRule> rules, CancellationToken ct = default)
     {

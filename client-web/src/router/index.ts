@@ -60,6 +60,18 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/operations/RulesView.vue'),
       },
       {
+        path: 'rules/new',
+        name: 'rule-new',
+        component: () => import('@/views/operations/RuleEditView.vue'),
+        meta: { roles: ['OperatorAdmin'] },
+      },
+      {
+        path: 'rules/:id(\\d+)',
+        name: 'rule-edit',
+        component: () => import('@/views/operations/RuleEditView.vue'),
+        meta: { roles: ['OperatorAdmin'] },
+      },
+      {
         path: 'notifications',
         name: 'notifications',
         component: () => import('@/views/operations/NotificationsView.vue'),

@@ -8,7 +8,14 @@ public interface IDiagnosticRuleRepository
 
     Task<List<DiagnosticRule>> GetAllAsync(CancellationToken ct = default);
 
+    Task<DiagnosticRule?> FindByIdAsync(long id, CancellationToken ct = default);
+
+    /// <summary>同じ名前のルールが既にあるか。idを渡すとそのルール自身は除いて調べる。</summary>
+    Task<bool> ExistsByNameAsync(string name, long? excludeId = null, CancellationToken ct = default);
+
     Task<bool> AnyAsync(CancellationToken ct = default);
+
+    Task AddAsync(DiagnosticRule rule, CancellationToken ct = default);
 
     Task AddRangeAsync(IEnumerable<DiagnosticRule> rules, CancellationToken ct = default);
 

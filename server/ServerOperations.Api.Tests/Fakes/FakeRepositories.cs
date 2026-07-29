@@ -86,7 +86,13 @@ public class FakeMfaCredentialRepository : IMfaCredentialRepository
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
 }
 
-public record AuditEntry(string Action, string TargetType, string? TargetId, AuditResult Result, long? ActorUserId);
+public record AuditEntry(
+    string Action,
+    string TargetType,
+    string? TargetId,
+    AuditResult Result,
+    long? ActorUserId,
+    string? Details = null);
 
 public class FakeAuditService : IAuditService
 {
@@ -102,7 +108,7 @@ public class FakeAuditService : IAuditService
         string? details = null,
         CancellationToken ct = default)
     {
-        Entries.Add(new AuditEntry(action, targetType, targetId, result, actorUserId));
+        Entries.Add(new AuditEntry(action, targetType, targetId, result, actorUserId, details));
         return Task.CompletedTask;
     }
 }

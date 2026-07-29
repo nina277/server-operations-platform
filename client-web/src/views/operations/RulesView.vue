@@ -4,8 +4,13 @@ import { useI18n } from 'vue-i18n'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import AsyncState from '@/components/common/AsyncState.vue'
+import { RouterLink } from 'vue-router'
 import { extractErrorMessage } from '@/api/http'
-import { fetchDiagnosticRules, testDiagnosticRules } from '@/api/operations'
+import {
+  fetchDiagnosticRules,
+  setDiagnosticRuleEnabled,
+  testDiagnosticRules,
+} from '@/api/operations'
 import { useAsyncData } from '@/composables/useAsyncData'
 import { useAuthStore } from '@/stores/auth'
 import { severityTone } from '@/utils/format'
@@ -34,8 +39,23 @@ const form = ref({
 const matches = ref<RuleTestMatch[] | null>(null)
 const testing = ref(false)
 const testError = ref<string | null>(null)
+const toggling = ref(false)
 
 onMounted(load)
+
+/** ルールを消さずに止める。切り替えは監査に残る。 */
+async function handleToggleEnabled(id: number, isEnabled: boolean): Promise<void> {
+  toggling.value = true
+
+  try {
+    await setDiagnosticRuleEnabled(id, isEnabled)
+    await load()
+  } catch (e) {
+    error.value = extractErrorMessage(e, t('common.error'))
+  } finally {
+    toggling.value = false
+  }
+}
 
 function toNumber(value: string): number | null {
   if (value.trim().length === 0) {
@@ -76,7 +96,13 @@ async function handleTest(): Promise<void> {
 
 <template>
   <div>
-    <PageHeader :title="t('nav.rules')" />
+    <PageHeader :title="t('nav.rules')">
+      <template #actions>
+        <RouterLink v-if="auth.isAdmin" class="button button--primary" :to="{ name: 'rule-new' }">
+          {{ t('rules.add') }}
+        </RouterLink>
+      </template>
+    </PageHeader>
 
     <AsyncState
       :loading="loading"
@@ -96,11 +122,22 @@ async function handleTest(): Promise<void> {
               <th scope="col">{{ t('rules.recommendedAction') }}</th>
               <th scope="col">{{ t('rules.priority') }}</th>
               <th scope="col">{{ t('rules.enabled') }}</th>
+              <th v-if="auth.isAdmin" scope="col">
+                <span class="sr-only">{{ t('common.execute') }}</span>
+              </th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="rule in data" :key="rule.id">
-              <th scope="row" class="table__title">{{ rule.name }}</th>
+              <th scope="row" class="table__title">
+                <RouterLink
+                  v-if="auth.isAdmin"
+                  :to="{ name: 'rule-edit', params: { id: rule.id } }"
+                >
+                  {{ rule.name }}
+                </RouterLink>
+                <template v-else>{{ rule.name }}</template>
+              </th>
               <td>{{ rule.classification }}</td>
               <td>{{ rule.ruleType }}</td>
               <td>
@@ -116,6 +153,16 @@ async function handleTest(): Promise<void> {
                   :tone="rule.isEnabled ? 'low' : 'neutral'"
                   :label="rule.isEnabled ? t('rules.enabled') : t('rules.disabled')"
                 />
+              </td>
+              <td v-if="auth.isAdmin">
+                <button
+                  type="button"
+                  class="button"
+                  :disabled="toggling"
+                  @click="handleToggleEnabled(rule.id, !rule.isEnabled)"
+                >
+                  {{ rule.isEnabled ? t('rules.disabled') : t('rules.enabled') }}
+                </button>
               </td>
             </tr>
           </tbody>
@@ -198,6 +245,15 @@ async function handleTest(): Promise<void> {
 </template>
 
 <style scoped>
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .section {
   margin-top: var(--spacing-xl);
 }

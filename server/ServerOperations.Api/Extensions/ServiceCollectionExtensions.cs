@@ -53,6 +53,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IMfaService, MfaService>();
         services.AddScoped<IAuditService, AuditService>();
         services.AddScoped<IAuditLogQueryService, AuditLogQueryService>();
+        services.AddScoped<IDiagnosticRuleService, DiagnosticRuleService>();
         services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
         services.AddScoped<ISettingsService, SettingsService>();
         services.AddScoped<ISecretsService, SecretsService>();

@@ -177,6 +177,33 @@ export default {
     condition: 'Condition',
     enabled: 'Enabled',
     disabled: 'Disabled',
+    add: 'Add rule',
+    edit: 'Edit rule',
+    noAction: 'No action (notify only)',
+    types: {
+      State: 'State matches',
+      Threshold: 'Value crosses a threshold',
+      Regex: 'Log matches a pattern',
+    },
+    priorityHelp: 'Lower values are evaluated first.',
+    recommendedActionHelp:
+      'Only actions from the recovery allow list can be selected. Free-form text is rejected.',
+    conditionField: 'Field',
+    conditionFieldHelp: 'Only collected values can be referenced.',
+    conditionEqualsAny: 'Matching values',
+    conditionEqualsAnyPlaceholder: 'One value per line (e.g. exited)',
+    conditionOperator: 'Comparison',
+    conditionValue: 'Threshold',
+    conditionPattern: 'Pattern (regular expression)',
+    conditionPatternHelp:
+      'Patterns that take too long to evaluate cannot be saved. Keep them simple.',
+    conditionPreview: 'Condition to be saved:',
+    rationaleTemplate: 'Rationale template',
+    rationaleTemplateHelp: '{field}, {value} and {expected} are replaced with actual values.',
+    saveWarning:
+      'Rules are the entry point for automatic recovery. Loosening a condition can cause unintended automatic actions, so test before saving.',
+    testSavedOnly:
+      'Testing runs against saved, enabled rules. Save first to check what you are editing.',
     test: 'Test rules',
     testDescription:
       'Enter sample collected values to see which rules would match. Nothing is saved or executed.',
