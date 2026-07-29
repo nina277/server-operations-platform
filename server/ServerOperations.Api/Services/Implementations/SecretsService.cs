@@ -21,6 +21,7 @@ public class SecretsService(
         "fcm-service-account",
         "backup-access-key",
         "backup-secret-key",
+        "backup-encryption-key",
     ];
 
     private readonly IDataProtector _protector = dataProtectionProvider.CreateProtector("EncryptedSecret");

@@ -30,6 +30,7 @@ public class RecoveryExecutionServiceTests
             Name = $"t{id}",
             TemplateId = templateId,
             IsEnabled = true,
+            AllowedContainersJson = AllowedContainers.Serialize(["web"]),
             Profile = new TargetProfile
             {
                 TargetId = id,
@@ -116,6 +117,21 @@ public class RecoveryExecutionServiceTests
         Assert.Empty(_docker.ControlCalls);
         Assert.Equal(RecoveryActionStatus.Failed, action.Status);
         Assert.Contains("許可されていない", action.ResultMessage);
+    }
+
+    [Fact]
+    public async Task Execute_ContainerRemovedFromAllowList_DoesNotTouchDocker()
+    {
+        // 受付後に許可リストから外された場合、実行直前の再検証で止まること
+        AddTarget();
+        var action = AddAction();
+        _targets.Targets[0].AllowedContainersJson = "[]";
+
+        await CreateSut().ExecuteAsync(action.Id);
+
+        Assert.Empty(_docker.ControlCalls);
+        Assert.Equal(RecoveryActionStatus.Failed, action.Status);
+        Assert.Contains("許可リスト", action.ResultMessage);
     }
 
     [Fact]

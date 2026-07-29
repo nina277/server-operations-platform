@@ -46,7 +46,8 @@ public class RecoveryServiceTests
         return incident;
     }
 
-    private void AddTarget(long id = 1, string templateId = "docker-host")
+    private void AddTarget(
+        long id = 1, string templateId = "docker-host", params string[] allowedContainers)
     {
         _targets.Targets.Add(new MonitoringTarget
         {
@@ -54,6 +55,9 @@ public class RecoveryServiceTests
             Name = $"t{id}",
             TemplateId = templateId,
             IsEnabled = true,
+            // 既定で "web" を操作可能にする(許可リストの検証は専用テストで行う)
+            AllowedContainersJson = AllowedContainers.Serialize(
+                allowedContainers.Length == 0 ? ["web"] : allowedContainers),
         });
     }
 
@@ -187,6 +191,65 @@ public class RecoveryServiceTests
             }, idempotencyKey: "key-1"));
 
         Assert.Equal("action_not_allowed_for_target", ex.Code);
+    }
+
+    [Fact]
+    public async Task Request_ContainerNotInAllowList_Rejects()
+    {
+        AddTarget(allowedContainers: "web");
+        AddIncident();
+
+        var ex = await Assert.ThrowsAsync<AppException>(() =>
+            CreateSut().RequestActionAsync(1, new CreateRecoveryActionRequest
+            {
+                ActionId = RecoveryActionCatalog.RestartAllowedContainer,
+                TargetResource = "mysql",
+            }, idempotencyKey: "key-1"));
+
+        Assert.Equal("container_not_allowed", ex.Code);
+        Assert.Empty(_queue.Enqueued);
+        Assert.Contains(_audit.Entries,
+            e => e.Action == "recovery.action.denied" && e.Result == Core.Models.Auth.AuditResult.Denied);
+    }
+
+    [Fact]
+    public async Task Request_WithEmptyAllowList_RejectsEverything()
+    {
+        // 初期状態(許可リストが空)ではどのコンテナも操作できない
+        _targets.Targets.Add(new MonitoringTarget
+        {
+            Id = 1,
+            Name = "t1",
+            TemplateId = "docker-host",
+            IsEnabled = true,
+            AllowedContainersJson = "[]",
+        });
+        AddIncident();
+
+        var ex = await Assert.ThrowsAsync<AppException>(() =>
+            CreateSut().RequestActionAsync(1, new CreateRecoveryActionRequest
+            {
+                ActionId = RecoveryActionCatalog.RestartAllowedContainer,
+                TargetResource = "web",
+            }, idempotencyKey: "key-1"));
+
+        Assert.Equal("container_not_allowed", ex.Code);
+    }
+
+    [Fact]
+    public async Task CreateApproval_ContainerNotInAllowList_Rejects()
+    {
+        AddTarget(allowedContainers: "web");
+        AddIncident();
+
+        var ex = await Assert.ThrowsAsync<AppException>(() =>
+            CreateSut().CreateApprovalAsync(1, new CreateApprovalRequest
+            {
+                ActionId = RecoveryActionCatalog.StopAllowedContainer,
+                TargetResource = "mysql",
+            }));
+
+        Assert.Equal("container_not_allowed", ex.Code);
     }
 
     [Fact]
