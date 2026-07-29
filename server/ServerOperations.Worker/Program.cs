@@ -45,6 +45,17 @@ if (!string.IsNullOrWhiteSpace(connectionString))
     builder.Services.AddSingleton<IRuleEngine, RuleEngine>();
     builder.Services.AddScoped<IDiagnosisService, DiagnosisService>();
 
+    // 復旧の実行はWorkerだけが行う
+    builder.Services.AddSingleton(
+        builder.Configuration.GetSection(RecoveryLimits.SectionName).Get<RecoveryLimits>() ?? new RecoveryLimits());
+    builder.Services.AddScoped<IRecoveryActionRepository, RecoveryActionRepository>();
+    builder.Services.AddScoped<IRecoveryApprovalRepository, RecoveryApprovalRepository>();
+    builder.Services.AddScoped<IHealthCheckRepository, HealthCheckRepository>();
+    builder.Services.AddSingleton<IRecoveryActionCatalog, RecoveryActionCatalog>();
+    builder.Services.AddScoped<IRecoveryRateLimiter, RecoveryRateLimiter>();
+    builder.Services.AddScoped<IHealthCheckService, HealthCheckService>();
+    builder.Services.AddScoped<IRecoveryExecutionService, RecoveryExecutionService>();
+
     // アダプター用HTTPクライアント(接続時にも遮断対象IPを検査する)
     builder.Services.AddHttpClient(DockerAdapter.HttpClientName, client =>
             client.Timeout = TimeSpan.FromSeconds(15))
@@ -71,7 +82,8 @@ if (hangfireEnabled)
     builder.Services.AddHangfireServer(options =>
     {
         options.WorkerCount = 4;
-        options.Queues = ["collection", "default"];
+        // recoveryを先頭に置き、復旧を収集より優先して処理する
+        options.Queues = ["recovery", "collection", "default"];
     });
 
     // 対象別の定期収集ジョブを同期させるスケジューラー
