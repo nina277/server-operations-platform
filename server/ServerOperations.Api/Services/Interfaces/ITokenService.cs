@@ -1,4 +1,4 @@
-using ServerOperations.Api.Models.Auth;
+using ServerOperations.Core.Models.Auth;
 
 namespace ServerOperations.Api.Services.Interfaces;
 

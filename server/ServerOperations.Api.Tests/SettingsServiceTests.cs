@@ -1,5 +1,5 @@
 using ServerOperations.Api.DTOs.Settings;
-using ServerOperations.Api.Models.Auth;
+using ServerOperations.Core.Models.Auth;
 using ServerOperations.Api.Services.Implementations;
 using ServerOperations.Api.Tests.Fakes;
 

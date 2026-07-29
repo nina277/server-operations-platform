@@ -1,8 +1,8 @@
 using Microsoft.AspNetCore.DataProtection;
 using OtpNet;
 using ServerOperations.Api.DTOs.Auth;
-using ServerOperations.Api.Models.Auth;
-using ServerOperations.Api.Repositories.Interfaces;
+using ServerOperations.Core.Models.Auth;
+using ServerOperations.Core.Repositories.Interfaces;
 using ServerOperations.Api.Services.Interfaces;
 
 namespace ServerOperations.Api.Services.Implementations;

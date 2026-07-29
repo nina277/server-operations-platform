@@ -2,8 +2,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 using ServerOperations.Api.DTOs.Auth;
 using ServerOperations.Api.Extensions;
-using ServerOperations.Api.Models.Auth;
-using ServerOperations.Api.Services;
+using ServerOperations.Core.Models.Auth;
 using ServerOperations.Api.Services.Implementations;
 using ServerOperations.Api.Tests.Fakes;
 

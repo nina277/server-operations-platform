@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
-using ServerOperations.Api.Data;
-using ServerOperations.Api.Models.Auth;
+using ServerOperations.Core.Data;
+using ServerOperations.Core.Models.Auth;
 
 namespace ServerOperations.Api.Extensions;
 

@@ -4,7 +4,6 @@ using Microsoft.AspNetCore.Mvc;
 using ServerOperations.Api.DTOs.Auth;
 using ServerOperations.Api.DTOs.Common;
 using ServerOperations.Api.Middleware;
-using ServerOperations.Api.Services;
 using ServerOperations.Api.Services.Interfaces;
 
 namespace ServerOperations.Api.Controllers.Auth;

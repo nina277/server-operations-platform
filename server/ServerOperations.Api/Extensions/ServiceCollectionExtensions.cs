@@ -4,12 +4,12 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
-using ServerOperations.Api.Adapters.Implementations;
-using ServerOperations.Api.Adapters.Interfaces;
-using ServerOperations.Api.Data;
-using ServerOperations.Api.Models.Auth;
-using ServerOperations.Api.Repositories.Implementations;
-using ServerOperations.Api.Repositories.Interfaces;
+using ServerOperations.Core.Adapters.Implementations;
+using ServerOperations.Core.Adapters.Interfaces;
+using ServerOperations.Core.Data;
+using ServerOperations.Core.Models.Auth;
+using ServerOperations.Core.Repositories.Implementations;
+using ServerOperations.Core.Repositories.Interfaces;
 using ServerOperations.Api.Services.Implementations;
 using ServerOperations.Api.Services.Interfaces;
 
@@ -60,6 +60,13 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IAdapterTemplateCatalog, AdapterTemplateCatalog>();
         services.AddScoped<ITargetService, TargetService>();
 
+        services.AddScoped<IMetricSnapshotRepository, MetricSnapshotRepository>();
+        services.AddScoped<IIncidentRepository, IncidentRepository>();
+        services.AddScoped<IIncidentLogRepository, IncidentLogRepository>();
+        services.AddScoped<IIncidentService, IncidentService>();
+        services.AddScoped<IDashboardService, DashboardService>();
+        services.AddScoped<ITelemetryService, TelemetryService>();
+
         // アダプター用HTTPクライアント。リダイレクトは追跡せず、接続時にも遮断対象IPを検査する
         // (登録時の検証後にDNSの解決先が差し替えられるDNS rebindingへの対策)
         services.AddHttpClient(DockerAdapter.HttpClientName, client =>
@@ -88,7 +95,7 @@ public static class ServiceCollectionExtensions
         AllowAutoRedirect = false,
         ConnectCallback = async (context, ct) =>
         {
-            var allowed = await Adapters.Implementations.EndpointValidator
+            var allowed = await EndpointValidator
                 .ResolveAllowedAddressesAsync(context.DnsEndPoint.Host, ct);
 
             var socket = new System.Net.Sockets.Socket(

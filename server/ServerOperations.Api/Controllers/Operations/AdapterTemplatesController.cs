@@ -1,10 +1,9 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using ServerOperations.Api.Adapters.Interfaces;
+using ServerOperations.Core.Adapters.Interfaces;
 using ServerOperations.Api.DTOs.Common;
 using ServerOperations.Api.DTOs.Operations;
 using ServerOperations.Api.Middleware;
-using ServerOperations.Api.Services;
 
 namespace ServerOperations.Api.Controllers.Operations;
 

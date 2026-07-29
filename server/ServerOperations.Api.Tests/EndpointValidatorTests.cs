@@ -1,5 +1,4 @@
-using ServerOperations.Api.Adapters.Implementations;
-using ServerOperations.Api.Services;
+using ServerOperations.Core.Adapters.Implementations;
 
 namespace ServerOperations.Api.Tests;
 

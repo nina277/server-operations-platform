@@ -1,7 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Options;
-using ServerOperations.Api.Repositories.Interfaces;
+using ServerOperations.Core.Repositories.Interfaces;
 
 namespace ServerOperations.Api.Extensions;
 

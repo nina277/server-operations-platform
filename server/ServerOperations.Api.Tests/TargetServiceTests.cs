@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.DataProtection;
-using ServerOperations.Api.Adapters.Implementations;
+using ServerOperations.Core.Adapters.Implementations;
 using ServerOperations.Api.DTOs.Operations;
-using ServerOperations.Api.Services;
 using ServerOperations.Api.Services.Implementations;
 using ServerOperations.Api.Tests.Fakes;
 
