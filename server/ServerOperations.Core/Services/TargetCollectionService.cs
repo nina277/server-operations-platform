@@ -27,6 +27,7 @@ public class TargetCollectionService(
     IDataProtectionProvider dataProtectionProvider,
     IDiagnosisService diagnosisService,
     Notifications.INotificationService notificationService,
+    IAutoRecoveryService autoRecoveryService,
     TimeProvider timeProvider,
     ILogger<TargetCollectionService> logger) : ITargetCollectionService
 {
@@ -138,14 +139,45 @@ public class TargetCollectionService(
 
             if (shouldDiagnose)
             {
-                await diagnosisService.DiagnoseAsync(incident, new DiagnosticContext
+                var diagnosis = await diagnosisService.DiagnoseAsync(incident, new DiagnosticContext
                 {
                     ContainerState = container.State,
                     ContainerName = container.Name,
                     RestartCount = container.RestartCount,
                     LogExcerpt = LogMasker.MaskSecrets(logExcerpt),
                 }, ct);
+
+                await TryAutoRecoverAsync(targetId, incident, diagnosis, ct);
             }
+        }
+    }
+
+    /// <summary>
+    /// 診断結果に基づく自動復旧を試みる。実行条件の判定はAutoRecoveryServiceが行う。
+    /// 失敗しても収集を止めない。
+    /// </summary>
+    private async Task TryAutoRecoverAsync(
+        long targetId, Incident incident, Diagnosis? diagnosis, CancellationToken ct)
+    {
+        if (diagnosis is null)
+        {
+            return;
+        }
+
+        try
+        {
+            // 自動復旧の判定は最新の対象設定(自動復旧の有効/無効・許可コンテナ)で行う
+            var target = await targets.FindByIdAsync(targetId, ct);
+            if (target is null)
+            {
+                return;
+            }
+
+            await autoRecoveryService.TryRecoverAsync(target, incident, diagnosis, ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Auto recovery failed for incident {IncidentId}.", incident.Id);
         }
     }
 
@@ -202,12 +234,14 @@ public class TargetCollectionService(
 
             if (shouldDiagnose)
             {
-                await diagnosisService.DiagnoseAsync(incident, new DiagnosticContext
+                var diagnosis = await diagnosisService.DiagnoseAsync(incident, new DiagnosticContext
                 {
                     HttpSuccess = false,
                     HttpLatencyMs = result.LatencyMs,
                     LogExcerpt = result.Message,
                 }, ct);
+
+                await TryAutoRecoverAsync(targetId, incident, diagnosis, ct);
             }
         }
     }
@@ -236,6 +270,7 @@ public class TargetCollectionService(
 
         if (shouldDiagnose)
         {
+            // 収集自体が失敗している状態では対象へ到達できないため、自動復旧は試みない
             await diagnosisService.DiagnoseAsync(incident, new DiagnosticContext(), ct);
         }
     }

@@ -57,6 +57,8 @@ if (!string.IsNullOrWhiteSpace(connectionString))
     builder.Services.AddScoped<IRecoveryRateLimiter, RecoveryRateLimiter>();
     builder.Services.AddScoped<IHealthCheckService, HealthCheckService>();
     builder.Services.AddScoped<IRecoveryExecutionService, RecoveryExecutionService>();
+    builder.Services.AddScoped<IAuditLogRepository, AuditLogRepository>();
+    builder.Services.AddScoped<IAutoRecoveryService, AutoRecoveryService>();
 
     // 通知・保持(T-07)
     builder.Services.AddScoped<INotificationRepository, NotificationRepository>();

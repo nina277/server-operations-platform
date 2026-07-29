@@ -23,9 +23,10 @@ public class TargetCollectionServiceTests
     private readonly Microsoft.AspNetCore.DataProtection.EphemeralDataProtectionProvider _dataProtection = new();
     private readonly FakeDiagnosisService _diagnosis = new();
     private readonly FakeNotificationService _notifications = new();
+    private readonly FakeAutoRecoveryService _autoRecovery = new();
 
     private TargetCollectionService CreateSut() => new(
-        _targets, _snapshots, _incidents, _logs, _docker, _http, _dataProtection, _diagnosis, _notifications, _time,
+        _targets, _snapshots, _incidents, _logs, _docker, _http, _dataProtection, _diagnosis, _notifications, _autoRecovery, _time,
         NullLogger<TargetCollectionService>.Instance);
 
     private void AddDockerTarget(long id = 1)
@@ -155,7 +156,7 @@ public class TargetCollectionServiceTests
         AddHttpTarget();
         var throwingHttp = new ThrowingHttpAdapter();
         var sut = new TargetCollectionService(
-            _targets, _snapshots, _incidents, _logs, _docker, throwingHttp, _dataProtection, _diagnosis, _notifications, _time,
+            _targets, _snapshots, _incidents, _logs, _docker, throwingHttp, _dataProtection, _diagnosis, _notifications, _autoRecovery, _time,
             NullLogger<TargetCollectionService>.Instance);
 
         await sut.CollectAsync(1);
@@ -269,6 +270,59 @@ public class TargetCollectionServiceTests
 
         // 既存インシデントへの集約時は通知を作り直さない
         Assert.Single(_notifications.Requests);
+    }
+
+    [Fact]
+    public async Task Collect_WithDiagnosis_InvokesAutoRecovery()
+    {
+        AddDockerTarget();
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "exited", "Exited (137)", 3)];
+        _diagnosis.Result = new Diagnosis
+        {
+            Id = 1,
+            IncidentId = 1,
+            TargetId = 1,
+            Source = DiagnosisSource.Rule,
+            Classification = "ContainerStopped",
+            Severity = IncidentSeverity.High,
+            Rationale = "コンテナ状態が exited です。",
+            RecommendedActionId = "RESTART_ALLOWED_CONTAINER",
+            RecommendedActionAllowed = true,
+        };
+
+        await CreateSut().CollectAsync(1);
+
+        var call = Assert.Single(_autoRecovery.Calls);
+        Assert.Equal(1, call.Target.Id);
+        Assert.Equal("ContainerStopped", call.Diagnosis.Classification);
+    }
+
+    [Fact]
+    public async Task Collect_WithoutDiagnosis_DoesNotInvokeAutoRecovery()
+    {
+        AddDockerTarget();
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "exited", "Exited (137)", 3)];
+        // 診断できなかった場合(ルール未一致・履歴なし)は自動復旧しない
+        _diagnosis.Result = null;
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Empty(_autoRecovery.Calls);
+    }
+
+    [Fact]
+    public async Task Collect_CollectionFailure_DoesNotInvokeAutoRecovery()
+    {
+        // 対象へ到達できていない状態で復旧操作を試みない
+        AddHttpTarget();
+        var sut = new TargetCollectionService(
+            _targets, _snapshots, _incidents, _logs, _docker, new ThrowingHttpAdapter(),
+            _dataProtection, _diagnosis, _notifications, _autoRecovery, _time,
+            NullLogger<TargetCollectionService>.Instance);
+
+        await sut.CollectAsync(1);
+
+        Assert.Empty(_autoRecovery.Calls);
     }
 
     [Fact]
