@@ -22,3 +22,12 @@ auth.restore().finally(() => {
   app.use(router)
   app.mount('#app')
 })
+
+// 画面の外枠だけを保持するService Worker。運用データはキャッシュしない。
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  window.addEventListener('load', () => {
+    void navigator.serviceWorker.register('/sw.js').catch(() => {
+      // 登録できなくてもアプリは通常どおり動くため、失敗は無視する
+    })
+  })
+}

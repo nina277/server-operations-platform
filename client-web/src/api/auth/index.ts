@@ -1,4 +1,4 @@
-import http from '@/api/http'
+import http, { unwrap } from '@/api/http'
 import type { ApiResponse } from '@/types/common'
 import type {
   CurrentUser,
@@ -7,14 +7,6 @@ import type {
   MfaVerifyResult,
   TokenPair,
 } from '@/types/auth'
-
-function unwrap<T>(response: { data: ApiResponse<T> }): T {
-  const data = response.data.data
-  if (data === null) {
-    throw new Error(response.data.error?.message ?? '応答を取得できませんでした。')
-  }
-  return data
-}
 
 export async function login(request: LoginRequest): Promise<TokenPair> {
   return unwrap(await http.post<ApiResponse<TokenPair>>('/api/v1/auth/login', request))

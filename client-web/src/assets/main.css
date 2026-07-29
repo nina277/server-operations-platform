@@ -96,3 +96,94 @@ textarea {
   font: inherit;
   color: inherit;
 }
+
+/* 幅の広い表は本体ではなく表だけを横スクロールさせる */
+.table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background-color: var(--color-surface);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.table th,
+.table td {
+  padding: 0.6em 0.8em;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: top;
+  white-space: nowrap;
+}
+
+.table thead th {
+  background-color: var(--color-surface-alt);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.table tbody tr:last-child th,
+.table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* 件名など長い文字は折り返す */
+.table__title {
+  white-space: normal;
+  min-width: 14rem;
+  font-weight: 500;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  margin-bottom: var(--spacing-md);
+}
+
+.form-field input[type='text'],
+.form-field input[type='number'],
+.form-field input[type='datetime-local'],
+.form-field select,
+.form-field textarea {
+  padding: 0.45em 0.6em;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius);
+  background-color: var(--color-bg);
+}
+
+.form-field__help {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+.button {
+  padding: 0.45em 1.1em;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius);
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.button:hover:not(:disabled) {
+  background-color: var(--color-surface-alt);
+}
+
+.button--primary {
+  border-color: var(--color-accent);
+  background-color: var(--color-accent);
+  color: var(--color-text-inverse);
+}
+
+.button--primary:hover:not(:disabled) {
+  background-color: var(--color-accent-hover);
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

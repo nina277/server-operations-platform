@@ -96,6 +96,18 @@ async function refreshAccessToken(): Promise<string | null> {
   }
 }
 
+/**
+ * ApiResponse<T>から中身を取り出す。
+ * successでもdataがnullの応答は想定していないため、そのままエラーにする。
+ */
+export function unwrap<T>(response: { data: ApiResponse<T> }): T {
+  const data = response.data.data
+  if (data === null || data === undefined) {
+    throw new Error(response.data.error?.message ?? '応答を取得できませんでした。')
+  }
+  return data
+}
+
 /** APIエラーから利用者向けメッセージを取り出す。 */
 export function extractErrorMessage(error: unknown, fallback: string): string {
   if (axios.isAxiosError(error)) {
