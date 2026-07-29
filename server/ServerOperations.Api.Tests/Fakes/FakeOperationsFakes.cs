@@ -54,6 +54,17 @@ public class FakeDockerAdapter : IDockerAdapter
     public Task<string> GetContainerLogsAsync(
         string endpoint, string containerId, int tailLines = 50, CancellationToken ct = default) =>
         Task.FromResult(ContainerLogs.GetValueOrDefault(containerId, string.Empty));
+
+    public List<(string Endpoint, string Container, ContainerOperation Operation)> ControlCalls { get; } = [];
+
+    public AdapterConnectionResult ControlResult { get; set; } = new(true, "操作に成功しました。");
+
+    public Task<AdapterConnectionResult> ControlContainerAsync(
+        string endpoint, string containerNameOrId, ContainerOperation operation, CancellationToken ct = default)
+    {
+        ControlCalls.Add((endpoint, containerNameOrId, operation));
+        return Task.FromResult(ControlResult);
+    }
 }
 
 public class FakeHttpAdapter : IHttpAdapter

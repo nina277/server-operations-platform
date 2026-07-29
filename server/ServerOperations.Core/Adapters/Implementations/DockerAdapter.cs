@@ -126,6 +126,49 @@ public class DockerAdapter(IHttpClientFactory httpClientFactory, ILogger<DockerA
         return DecodeDockerLogStream(raw);
     }
 
+    public async Task<AdapterConnectionResult> ControlContainerAsync(
+        string endpoint, string containerNameOrId, ContainerOperation operation, CancellationToken ct = default)
+    {
+        var client = httpClientFactory.CreateClient(HttpClientName);
+        var baseUri = new Uri(endpoint.TrimEnd('/') + "/");
+        var verb = operation switch
+        {
+            ContainerOperation.Start => "start",
+            ContainerOperation.Stop => "stop",
+            ContainerOperation.Restart => "restart",
+            _ => throw new ArgumentOutOfRangeException(nameof(operation)),
+        };
+
+        var path = $"containers/{Uri.EscapeDataString(containerNameOrId)}/{verb}";
+        var stopwatch = Stopwatch.StartNew();
+
+        try
+        {
+            using var response = await client.PostAsync(new Uri(baseUri, path), content: null, ct);
+            stopwatch.Stop();
+
+            // 304 = 既に目的の状態(開始済み/停止済み)。冪等な操作として成功扱いにする
+            if (response.IsSuccessStatusCode || (int)response.StatusCode == 304)
+            {
+                var note = (int)response.StatusCode == 304 ? "(既に目的の状態でした)" : string.Empty;
+                return new AdapterConnectionResult(
+                    true, $"コンテナ {containerNameOrId} の{verb}に成功しました。{note}", stopwatch.ElapsedMilliseconds);
+            }
+
+            return new AdapterConnectionResult(
+                false,
+                $"コンテナ {containerNameOrId} の{verb}に失敗しました(HTTP {(int)response.StatusCode})。",
+                stopwatch.ElapsedMilliseconds);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            stopwatch.Stop();
+            logger.LogWarning(ex, "Docker container control failed. operation={Operation}", verb);
+            return new AdapterConnectionResult(
+                false, "Docker APIへ接続できません(到達不能またはタイムアウト)。", stopwatch.ElapsedMilliseconds);
+        }
+    }
+
     private static async Task<int> GetRestartCountAsync(
         HttpClient client, Uri baseUri, string containerId, CancellationToken ct)
     {

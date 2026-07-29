@@ -32,4 +32,18 @@ public interface IDockerAdapter
     /// <summary>コンテナログの末尾を取得する(呼び出し側でマスクして保存すること)。</summary>
     Task<string> GetContainerLogsAsync(
         string endpoint, string containerId, int tailLines = 50, CancellationToken ct = default);
+
+    /// <summary>
+    /// 許可済みコンテナの開始・停止・再起動。呼び出し側で許可リスト・承認・レート制限を検証済みであること。
+    /// exec・作成・削除・イメージ操作は提供しない。
+    /// </summary>
+    Task<AdapterConnectionResult> ControlContainerAsync(
+        string endpoint, string containerNameOrId, ContainerOperation operation, CancellationToken ct = default);
+}
+
+public enum ContainerOperation
+{
+    Start,
+    Stop,
+    Restart,
 }

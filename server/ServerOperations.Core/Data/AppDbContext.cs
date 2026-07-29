@@ -37,6 +37,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
     public DbSet<Diagnosis> Diagnoses => Set<Diagnosis>();
 
+    public DbSet<RecoveryAction> RecoveryActions => Set<RecoveryAction>();
+
+    public DbSet<RecoveryApproval> RecoveryApprovals => Set<RecoveryApproval>();
+
+    public DbSet<HealthCheck> HealthChecks => Set<HealthCheck>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);

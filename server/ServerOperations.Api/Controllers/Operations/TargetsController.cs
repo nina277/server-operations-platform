@@ -13,8 +13,18 @@ namespace ServerOperations.Api.Controllers.Operations;
 [Authorize]
 public class TargetsController(
     ITargetService targetService,
-    ITelemetryService telemetryService) : ControllerBase
+    ITelemetryService telemetryService,
+    IRecoveryService recoveryService) : ControllerBase
 {
+    /// <summary>対象のヘルスチェックを実行する(副作用なし)。</summary>
+    [HttpPost("{id:long}/health-check")]
+    public async Task<ActionResult<ApiResponse<HealthCheckDto>>> RunHealthCheck(
+        long id, CancellationToken ct)
+    {
+        var result = await recoveryService.RunHealthCheckAsync(id, ct);
+        return Ok(ApiResponse<HealthCheckDto>.Ok(result, TraceId()));
+    }
+
     [HttpGet("{id:long}/metrics")]
     public async Task<ActionResult<ApiResponse<List<MetricSnapshotDto>>>> GetMetrics(
         long id, [FromQuery] int limit = 100, CancellationToken ct = default)

@@ -1,3 +1,4 @@
+using Hangfire;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
@@ -71,6 +72,35 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IDiagnosisRepository, DiagnosisRepository>();
         services.AddSingleton<Core.Services.IRuleEngine, Core.Services.RuleEngine>();
         services.AddScoped<Core.Services.IDiagnosisService, Core.Services.DiagnosisService>();
+
+        // 復旧(T-06)。APIは受付・検証のみを行い、実行はWorkerが担う。
+        var recoveryLimits = configuration.GetSection(Core.Services.RecoveryLimits.SectionName)
+            .Get<Core.Services.RecoveryLimits>() ?? new Core.Services.RecoveryLimits();
+        services.AddSingleton(recoveryLimits);
+        services.AddScoped<IRecoveryActionRepository, RecoveryActionRepository>();
+        services.AddScoped<IRecoveryApprovalRepository, RecoveryApprovalRepository>();
+        services.AddScoped<IHealthCheckRepository, HealthCheckRepository>();
+        services.AddSingleton<Core.Services.IRecoveryActionCatalog, Core.Services.RecoveryActionCatalog>();
+        services.AddScoped<Core.Services.IRecoveryRateLimiter, Core.Services.RecoveryRateLimiter>();
+        services.AddScoped<Core.Services.IHealthCheckService, Core.Services.HealthCheckService>();
+        services.AddScoped<IRecoveryService, RecoveryService>();
+
+        // Hangfireクライアント(ジョブサーバーは起動しない)。未設定時は実行を委譲せず警告に留める。
+        if (configuration.GetValue("Hangfire:Enabled", defaultValue: true))
+        {
+            services.AddHangfire(config => config
+                .SetDataCompatibilityLevel(Hangfire.CompatibilityLevel.Version_180)
+                .UseSimpleAssemblyNameTypeSerializer()
+                .UseRecommendedSerializerSettings()
+                .UseStorage(new Hangfire.MySql.MySqlStorage(
+                    connectionString + "Allow User Variables=true;",
+                    new Hangfire.MySql.MySqlStorageOptions { TablesPrefix = "hangfire_" })));
+            services.AddScoped<IRecoveryJobQueue, HangfireRecoveryJobQueue>();
+        }
+        else
+        {
+            services.AddScoped<IRecoveryJobQueue, NoopRecoveryJobQueue>();
+        }
 
         // アダプター用HTTPクライアント。リダイレクトは追跡せず、接続時にも遮断対象IPを検査する
         // (登録時の検証後にDNSの解決先が差し替えられるDNS rebindingへの対策)
