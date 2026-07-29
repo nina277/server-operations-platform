@@ -25,6 +25,15 @@ public static class WebApplicationExtensions
         await db.Database.MigrateAsync();
         logger.LogInformation("Database migration applied.");
 
+        // 基本診断ルール(ContainerStopped / HttpUnavailable / MemoryPressure / DiskPressure)の初期投入
+        if (!await db.DiagnosticRules.AnyAsync())
+        {
+            db.DiagnosticRules.AddRange(
+                ServerOperations.Core.Services.DefaultDiagnosticRules.Create(DateTime.UtcNow));
+            await db.SaveChangesAsync();
+            logger.LogInformation("Default diagnostic rules seeded.");
+        }
+
         if (await db.Users.AnyAsync())
         {
             return;

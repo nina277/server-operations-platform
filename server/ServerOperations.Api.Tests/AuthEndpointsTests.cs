@@ -41,6 +41,18 @@ public class AuthEndpointsTests(WebApplicationFactory<Program> factory)
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
+    [Theory]
+    [InlineData("/api/v1/diagnostic-rules")]
+    [InlineData("/api/v1/incidents/1/diagnoses")]
+    public async Task DiagnosisEndpoints_WithoutToken_Return401(string path)
+    {
+        using var client = factory.CreateClient();
+
+        var response = await client.GetAsync(path);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
     [Fact]
     public async Task Login_WithMalformedBody_ReturnsApiResponseValidationError()
     {

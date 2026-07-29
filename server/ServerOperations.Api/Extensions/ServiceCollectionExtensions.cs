@@ -67,6 +67,11 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IDashboardService, DashboardService>();
         services.AddScoped<ITelemetryService, TelemetryService>();
 
+        services.AddScoped<IDiagnosticRuleRepository, DiagnosticRuleRepository>();
+        services.AddScoped<IDiagnosisRepository, DiagnosisRepository>();
+        services.AddSingleton<Core.Services.IRuleEngine, Core.Services.RuleEngine>();
+        services.AddScoped<Core.Services.IDiagnosisService, Core.Services.DiagnosisService>();
+
         // アダプター用HTTPクライアント。リダイレクトは追跡せず、接続時にも遮断対象IPを検査する
         // (登録時の検証後にDNSの解決先が差し替えられるDNS rebindingへの対策)
         services.AddHttpClient(DockerAdapter.HttpClientName, client =>

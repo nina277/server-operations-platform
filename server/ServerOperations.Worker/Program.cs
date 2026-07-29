@@ -39,6 +39,12 @@ if (!string.IsNullOrWhiteSpace(connectionString))
     builder.Services.AddScoped<IIncidentLogRepository, IncidentLogRepository>();
     builder.Services.AddScoped<ITargetCollectionService, TargetCollectionService>();
 
+    builder.Services.AddScoped<IDiagnosticRuleRepository, DiagnosticRuleRepository>();
+    builder.Services.AddScoped<IDiagnosisRepository, DiagnosisRepository>();
+    builder.Services.AddSingleton<IAdapterTemplateCatalog, AdapterTemplateCatalog>();
+    builder.Services.AddSingleton<IRuleEngine, RuleEngine>();
+    builder.Services.AddScoped<IDiagnosisService, DiagnosisService>();
+
     // アダプター用HTTPクライアント(接続時にも遮断対象IPを検査する)
     builder.Services.AddHttpClient(DockerAdapter.HttpClientName, client =>
             client.Timeout = TimeSpan.FromSeconds(15))
