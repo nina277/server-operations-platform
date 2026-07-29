@@ -84,6 +84,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<Core.Services.IRecoveryRateLimiter, Core.Services.RecoveryRateLimiter>();
         services.AddScoped<Core.Services.IHealthCheckService, Core.Services.HealthCheckService>();
         services.AddScoped<IRecoveryService, RecoveryService>();
+        // API側は収集を行わないが、Core側サービスの依存解決のため登録する
+        services.AddScoped<Core.Services.IRecoveryExecutionService, Core.Services.RecoveryExecutionService>();
+        services.AddScoped<Core.Services.IAutoRecoveryService, Core.Services.AutoRecoveryService>();
 
         // 通知・保持(T-07)
         services.AddScoped<INotificationRepository, NotificationRepository>();

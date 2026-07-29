@@ -71,11 +71,14 @@ public class FakeDiagnosisService : IDiagnosisService
 {
     public List<(Incident Incident, DiagnosticContext Context)> Calls { get; } = [];
 
+    /// <summary>診断結果。nullは「ルール未一致かつ履歴なし」を表す。</summary>
+    public Diagnosis? Result { get; set; }
+
     public Task<Diagnosis?> DiagnoseAsync(
         Incident incident, DiagnosticContext context, CancellationToken ct = default)
     {
         Calls.Add((incident, context));
-        return Task.FromResult<Diagnosis?>(null);
+        return Task.FromResult(Result);
     }
 }
 
@@ -88,5 +91,17 @@ public class FakeNotificationService : ServerOperations.Core.Services.Notificati
     {
         Requests.Add(request);
         return Task.FromResult<Notification?>(null);
+    }
+}
+
+public class FakeAutoRecoveryService : ServerOperations.Core.Services.IAutoRecoveryService
+{
+    public List<(MonitoringTarget Target, Incident Incident, Diagnosis Diagnosis)> Calls { get; } = [];
+
+    public Task<RecoveryAction?> TryRecoverAsync(
+        MonitoringTarget target, Incident incident, Diagnosis diagnosis, CancellationToken ct = default)
+    {
+        Calls.Add((target, incident, diagnosis));
+        return Task.FromResult<RecoveryAction?>(null);
     }
 }
