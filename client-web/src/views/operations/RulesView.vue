@@ -13,7 +13,7 @@ import {
 } from '@/api/operations'
 import { useAsyncData } from '@/composables/useAsyncData'
 import { useAuthStore } from '@/stores/auth'
-import { severityTone } from '@/utils/format'
+import { severityTone, toOptionalNumber, toOptionalText } from '@/utils/format'
 import type { RuleTestMatch } from '@/types/operations'
 
 const { t } = useI18n()
@@ -57,18 +57,6 @@ async function handleToggleEnabled(id: number, isEnabled: boolean): Promise<void
   }
 }
 
-function toNumber(value: string): number | null {
-  if (value.trim().length === 0) {
-    return null
-  }
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : null
-}
-
-function toText(value: string): string | null {
-  return value.trim().length > 0 ? value : null
-}
-
 async function handleTest(): Promise<void> {
   testing.value = true
   testError.value = null
@@ -76,14 +64,14 @@ async function handleTest(): Promise<void> {
 
   try {
     const response = await testDiagnosticRules({
-      containerState: toText(form.value.containerState),
-      containerName: toText(form.value.containerName),
-      restartCount: toNumber(form.value.restartCount),
-      memoryUsagePercent: toNumber(form.value.memoryUsagePercent),
-      diskUsagePercent: toNumber(form.value.diskUsagePercent),
-      httpStatus: toNumber(form.value.httpStatus),
-      httpLatencyMs: toNumber(form.value.httpLatencyMs),
-      logExcerpt: toText(form.value.logExcerpt),
+      containerState: toOptionalText(form.value.containerState),
+      containerName: toOptionalText(form.value.containerName),
+      restartCount: toOptionalNumber(form.value.restartCount),
+      memoryUsagePercent: toOptionalNumber(form.value.memoryUsagePercent),
+      diskUsagePercent: toOptionalNumber(form.value.diskUsagePercent),
+      httpStatus: toOptionalNumber(form.value.httpStatus),
+      httpLatencyMs: toOptionalNumber(form.value.httpLatencyMs),
+      logExcerpt: toOptionalText(form.value.logExcerpt),
     })
     matches.value = response.matches
   } catch (e) {

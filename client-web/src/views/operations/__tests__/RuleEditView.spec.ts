@@ -6,10 +6,12 @@ import { h } from 'vue'
 import { AxiosError, AxiosHeaders, type InternalAxiosRequestConfig } from 'axios'
 import RuleEditView from '../RuleEditView.vue'
 import { createTestI18n } from '@/test-utils/i18n'
-import { nthCall } from '@/test-utils/mock'
+import { at, nthCall } from '@/test-utils/mock'
 import type {
   DiagnosticRule,
   RuleEditorOptions,
+  RuleTestRequest,
+  RuleTestResponse,
   SaveDiagnosticRuleRequest,
 } from '@/types/operations'
 
@@ -36,13 +38,14 @@ const existingRule: DiagnosticRule = {
 const createDiagnosticRule = vi.fn<(r: SaveDiagnosticRuleRequest) => Promise<DiagnosticRule>>()
 const updateDiagnosticRule =
   vi.fn<(id: number, r: SaveDiagnosticRuleRequest) => Promise<DiagnosticRule>>()
+const testDiagnosticRules = vi.fn<(r: RuleTestRequest) => Promise<RuleTestResponse>>()
 
 vi.mock('@/api/operations', () => ({
   fetchRuleEditorOptions: () => Promise.resolve(options),
   fetchDiagnosticRule: () => Promise.resolve(existingRule),
   createDiagnosticRule: (r: SaveDiagnosticRuleRequest) => createDiagnosticRule(r),
   updateDiagnosticRule: (id: number, r: SaveDiagnosticRuleRequest) => updateDiagnosticRule(id, r),
-  testDiagnosticRules: () => Promise.resolve({ matches: [] }),
+  testDiagnosticRules: (r: RuleTestRequest) => testDiagnosticRules(r),
 }))
 
 function apiError(code: string, message: string): AxiosError {
@@ -87,6 +90,7 @@ describe('RuleEditView', () => {
     setActivePinia(createPinia())
     createDiagnosticRule.mockResolvedValue(existingRule)
     updateDiagnosticRule.mockResolvedValue(existingRule)
+    testDiagnosticRules.mockResolvedValue({ matches: [] })
   })
 
   it('推奨アクションの候補はサーバーの許可リストだけを出す', async () => {
@@ -257,5 +261,107 @@ describe('RuleEditView', () => {
     const { wrapper } = await mountView()
 
     expect(wrapper.text()).toContain('自動復旧の入口')
+  })
+
+  // --- 編集中の内容での試験 ---
+
+  it('試験では編集中の内容を仮ルールとして渡す', async () => {
+    const { wrapper } = await mountView()
+
+    await wrapper.get('#rule-name').setValue('ディスク逼迫')
+    await wrapper.get('#rule-classification').setValue('DiskPressure')
+    await wrapper.get('#rule-type').setValue('Threshold')
+    await wrapper.get('#condition-field').setValue('diskUsagePercent')
+    await wrapper.get('#condition-operator').setValue('>=')
+    await wrapper.get('#condition-value').setValue('80')
+    await wrapper.get('#test-disk').setValue('85')
+
+    const run = wrapper.findAll('button').find((b) => b.text() === '判定する')
+    await run?.trigger('click')
+    await flushPromises()
+
+    const request = nthCall(testDiagnosticRules.mock.calls, 0)[0]
+    expect(request.diskUsagePercent).toBe(85)
+    expect(request.candidateRule).toEqual({
+      // 新規なので0
+      id: 0,
+      name: 'ディスク逼迫',
+      classification: 'DiskPressure',
+      ruleType: 'Threshold',
+      conditionJson: '{"field":"diskUsagePercent","operator":">=","value":80}',
+      severity: 'Medium',
+      recommendedActionId: null,
+      priority: 100,
+      rationaleTemplate: '{field} が {value} です(判定条件: {expected})。',
+    })
+  })
+
+  it('編集中のルールは自分のIDを付けて渡す', async () => {
+    const { wrapper } = await mountView('/rules/4')
+
+    const run = wrapper.findAll('button').find((b) => b.text() === '判定する')
+    await run?.trigger('click')
+    await flushPromises()
+
+    expect(nthCall(testDiagnosticRules.mock.calls, 0)[0].candidateRule?.id).toBe(4)
+  })
+
+  it('編集中のルールによる一致だと分かるように示す', async () => {
+    testDiagnosticRules.mockResolvedValue({
+      matches: [
+        {
+          ruleId: -1,
+          ruleName: '編集中のルール',
+          classification: 'DiskPressure',
+          severity: 'Medium',
+          recommendedActionId: null,
+          rationale: 'diskUsagePercent が 85 です。',
+          isCandidate: true,
+        },
+        {
+          ruleId: 9,
+          ruleName: '保存済みのルール',
+          classification: 'DiskPressure',
+          severity: 'High',
+          recommendedActionId: null,
+          rationale: 'diskUsagePercent が 85 です。',
+          isCandidate: false,
+        },
+      ],
+    })
+
+    const { wrapper } = await mountView()
+
+    const run = wrapper.findAll('button').find((b) => b.text() === '判定する')
+    await run?.trigger('click')
+    await flushPromises()
+
+    const cards = wrapper.get('[data-testid="test-matches"]').findAll('li')
+    expect(cards).toHaveLength(2)
+    // 編集中のものだけに印が付く
+    expect(at(cards, 0).text()).toContain('編集中')
+    expect(at(cards, 0).classes()).toContain('card--candidate')
+    expect(at(cards, 1).text()).not.toContain('編集中')
+    expect(at(cards, 1).classes()).not.toContain('card--candidate')
+  })
+
+  it('サーバーが仮ルールを拒否したらその理由を出す', async () => {
+    testDiagnosticRules.mockRejectedValue(
+      apiError('invalid_condition', 'パターンの評価に時間がかかりすぎます。'),
+    )
+
+    const { wrapper } = await mountView()
+
+    const run = wrapper.findAll('button').find((b) => b.text() === '判定する')
+    await run?.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('時間がかかりすぎます')
+  })
+
+  it('保存しなくても試せることを画面で伝える', async () => {
+    const { wrapper } = await mountView()
+
+    expect(wrapper.text()).toContain('保存はされません')
   })
 })

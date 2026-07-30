@@ -13,7 +13,7 @@ import {
   testDiagnosticRules,
   updateDiagnosticRule,
 } from '@/api/operations'
-import { severityTone } from '@/utils/format'
+import { severityTone, toOptionalNumber, toOptionalText } from '@/utils/format'
 import type {
   DiagnosticRuleType,
   RuleEditorOptions,
@@ -169,35 +169,36 @@ watch(
   },
 )
 
-function toNumber(value: string): number | null {
-  if (value.trim().length === 0) {
-    return null
-  }
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : null
-}
-
-function toText(value: string): string | null {
-  return value.trim().length > 0 ? value : null
-}
-
 async function handleTest(): Promise<void> {
   testing.value = true
   testError.value = null
   testMatches.value = null
 
   try {
-    // 試験は保存済みの有効なルールに対して行う。
-    // 編集中の内容を確かめるには、先に保存して有効にする必要がある。
+    // 編集中の内容をそのまま渡して確かめる。保存はされない。
+    // 保存済みのルールも一緒に評価されるので、他のルールとの兼ね合いも見える。
     const response = await testDiagnosticRules({
-      containerState: toText(testInput.value.containerState),
-      containerName: toText(testInput.value.containerName),
-      restartCount: toNumber(testInput.value.restartCount),
-      memoryUsagePercent: toNumber(testInput.value.memoryUsagePercent),
-      diskUsagePercent: toNumber(testInput.value.diskUsagePercent),
-      httpStatus: toNumber(testInput.value.httpStatus),
-      httpLatencyMs: toNumber(testInput.value.httpLatencyMs),
-      logExcerpt: toText(testInput.value.logExcerpt),
+      containerState: toOptionalText(testInput.value.containerState),
+      containerName: toOptionalText(testInput.value.containerName),
+      restartCount: toOptionalNumber(testInput.value.restartCount),
+      memoryUsagePercent: toOptionalNumber(testInput.value.memoryUsagePercent),
+      diskUsagePercent: toOptionalNumber(testInput.value.diskUsagePercent),
+      httpStatus: toOptionalNumber(testInput.value.httpStatus),
+      httpLatencyMs: toOptionalNumber(testInput.value.httpLatencyMs),
+      logExcerpt: toOptionalText(testInput.value.logExcerpt),
+      candidateRule: {
+        id: ruleId.value ?? 0,
+        name: form.value.name.trim().length > 0 ? form.value.name.trim() : t('rules.editingRule'),
+        classification:
+          form.value.classification.trim().length > 0 ? form.value.classification.trim() : '-',
+        ruleType: form.value.ruleType,
+        conditionJson: conditionJson.value,
+        severity: form.value.severity,
+        recommendedActionId:
+          form.value.recommendedActionId.length > 0 ? form.value.recommendedActionId : null,
+        priority: form.value.priority,
+        rationaleTemplate: form.value.rationaleTemplate,
+      },
     })
     testMatches.value = response.matches
   } catch (e) {
@@ -413,7 +414,7 @@ async function handleSubmit(): Promise<void> {
 
     <section aria-labelledby="rule-test-heading" class="section">
       <h2 id="rule-test-heading" class="section__title">{{ t('rules.test') }}</h2>
-      <p class="form-field__help">{{ t('rules.testSavedOnly') }}</p>
+      <p class="form-field__help">{{ t('rules.testWithEditing') }}</p>
 
       <div class="grid">
         <div class="form-field">
@@ -446,15 +447,25 @@ async function handleSubmit(): Promise<void> {
 
       <template v-if="testMatches !== null">
         <ul v-if="testMatches.length > 0" class="cards" data-testid="test-matches">
-          <li v-for="match in testMatches" :key="match.ruleId" class="card">
+          <li
+            v-for="match in testMatches"
+            :key="match.ruleId"
+            class="card"
+            :class="{ 'card--candidate': match.isCandidate }"
+          >
             <div class="card__head">
               <strong>{{ match.ruleName }}</strong>
               <StatusBadge
                 :tone="severityTone(match.severity)"
                 :label="t(`severity.${match.severity.toLowerCase()}`)"
               />
+              <!-- 編集中のものか保存済みのものかを取り違えないようにする -->
+              <StatusBadge v-if="match.isCandidate" tone="medium" :label="t('rules.editingRule')" />
             </div>
             <p>{{ match.rationale }}</p>
+            <p v-if="match.recommendedActionId" class="muted">
+              {{ t('rules.recommendedAction') }}: {{ match.recommendedActionId }}
+            </p>
           </li>
         </ul>
         <p v-else role="status" class="muted">{{ t('rules.noMatches') }}</p>
@@ -549,6 +560,11 @@ async function handleSubmit(): Promise<void> {
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   background-color: var(--color-surface);
+}
+
+/* 編集中のルールによる一致は左端の線でも示す(色だけに頼らない) */
+.card--candidate {
+  border-left: 4px solid var(--color-accent);
 }
 
 .card__head {

@@ -59,6 +59,13 @@ public record RuleTestRequest
 
     public string? LogExcerpt { get; init; }
 
+    /// <summary>
+    /// 保存していない編集中のルール。指定すると、保存済みの有効なルールに加えてこれも評価する。
+    /// 同じIdのルールが保存済みにあれば、こちらで置き換えて評価する(編集中の内容を確かめるため)。
+    /// 保存はしない。
+    /// </summary>
+    public CandidateRuleDto? CandidateRule { get; init; }
+
     public DiagnosticContext ToContext() => new()
     {
         ContainerState = ContainerState,
@@ -87,11 +94,54 @@ public record RuleTestMatchDto
 
     /// <summary>判定根拠(条件と実値)。</summary>
     public required string Rationale { get; init; }
+
+    /// <summary>編集中の(保存していない)ルールによる一致か。</summary>
+    public required bool IsCandidate { get; init; }
 }
 
 public record RuleTestResponse
 {
     public required IReadOnlyList<RuleTestMatchDto> Matches { get; init; }
+}
+
+/// <summary>
+/// 保存前に判定を確かめるための仮ルール。
+/// 保存時と同じ検証を通すため、壊れた条件や重い正規表現はここでも拒否される。
+/// </summary>
+public record CandidateRuleDto
+{
+    /// <summary>編集中のルールのId。新規なら0。保存済みの同Idのルールはこれで置き換えて評価する。</summary>
+    public long Id { get; init; }
+
+    [Required]
+    [MaxLength(100)]
+    public required string Name { get; init; }
+
+    [Required]
+    [MaxLength(64)]
+    public required string Classification { get; init; }
+
+    [Required]
+    [MaxLength(16)]
+    public required string RuleType { get; init; }
+
+    [Required]
+    [MaxLength(2000)]
+    public required string ConditionJson { get; init; }
+
+    [Required]
+    [MaxLength(16)]
+    public required string Severity { get; init; }
+
+    [MaxLength(64)]
+    public string? RecommendedActionId { get; init; }
+
+    [Range(1, 1000)]
+    public int Priority { get; init; } = 100;
+
+    [Required]
+    [MaxLength(500)]
+    public required string RationaleTemplate { get; init; }
 }
 
 public record DiagnosisDto

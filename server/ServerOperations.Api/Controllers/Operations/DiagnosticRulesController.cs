@@ -13,10 +13,7 @@ namespace ServerOperations.Api.Controllers.Operations;
 [ApiController]
 [Route("api/v1/diagnostic-rules")]
 [Authorize]
-public class DiagnosticRulesController(
-    IDiagnosticRuleRepository rules,
-    IDiagnosticRuleService ruleService,
-    IRuleEngine ruleEngine) : ControllerBase
+public class DiagnosticRulesController(IDiagnosticRuleService ruleService) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<ApiResponse<List<DiagnosticRuleDto>>>> GetAll(CancellationToken ct)
@@ -37,27 +34,16 @@ public class DiagnosticRulesController(
     public ActionResult<ApiResponse<RuleEditorOptionsDto>> GetEditorOptions() =>
         Ok(ApiResponse<RuleEditorOptionsDto>.Ok(ruleService.GetEditorOptions(), TraceId()));
 
-    /// <summary>ルールのテスト入力。判定結果と根拠を返す(保存しない)。</summary>
+    /// <summary>
+    /// ルールのテスト入力。判定結果と根拠を返す(保存しない)。
+    /// 編集中のルールを渡すと、それも含めて評価する。
+    /// </summary>
     [HttpPost("test")]
     [Authorize(Policy = AuthorizationPolicies.AdminWithRecentMfa)]
     public async Task<ActionResult<ApiResponse<RuleTestResponse>>> Test(
         [FromBody] RuleTestRequest request, CancellationToken ct)
     {
-        var enabled = await rules.GetEnabledAsync(ct);
-        var matches = ruleEngine.Evaluate(enabled, request.ToContext());
-
-        var response = new RuleTestResponse
-        {
-            Matches = matches.Select(m => new RuleTestMatchDto
-            {
-                RuleId = m.Rule.Id,
-                RuleName = m.Rule.Name,
-                Classification = m.Rule.Classification,
-                Severity = m.Rule.Severity.ToString(),
-                RecommendedActionId = m.Rule.RecommendedActionId,
-                Rationale = m.Rationale,
-            }).ToList(),
-        };
+        var response = await ruleService.TestAsync(request, ct);
         return Ok(ApiResponse<RuleTestResponse>.Ok(response, TraceId()));
     }
 

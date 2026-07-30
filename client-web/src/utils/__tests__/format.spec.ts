@@ -7,6 +7,8 @@ import {
   resultTone,
   riskTone,
   severityTone,
+  toOptionalNumber,
+  toOptionalText,
 } from '../format'
 
 describe('表示用の整形', () => {
@@ -60,6 +62,38 @@ describe('表示用の整形', () => {
     expect(resultTone('Denied')).toBe('high')
     expect(resultTone('Blocked')).toBe('high')
     expect(resultTone('Queued')).toBe('neutral')
+  })
+
+  it('空欄はnull(値を渡さない)として扱う', () => {
+    expect(toOptionalNumber('')).toBeNull()
+    expect(toOptionalNumber('   ')).toBeNull()
+    expect(toOptionalNumber(null)).toBeNull()
+    expect(toOptionalNumber(undefined)).toBeNull()
+    expect(toOptionalText('')).toBeNull()
+    expect(toOptionalText('   ')).toBeNull()
+    expect(toOptionalText(null)).toBeNull()
+  })
+
+  it('数値入力欄からは文字列でも数値でも受け取れる', () => {
+    // type="number" の入力にv-modelを使うとVueが値を数値へ変換するため、
+    // 文字列だけを想定すると実行時に壊れる
+    expect(toOptionalNumber('85')).toBe(85)
+    expect(toOptionalNumber(85)).toBe(85)
+    expect(toOptionalNumber('0')).toBe(0)
+    expect(toOptionalNumber(0)).toBe(0)
+    expect(toOptionalNumber('-1.5')).toBe(-1.5)
+  })
+
+  it('数値にならない入力はnullにする', () => {
+    expect(toOptionalNumber('abc')).toBeNull()
+    expect(toOptionalNumber(Number.NaN)).toBeNull()
+    expect(toOptionalNumber(Number.POSITIVE_INFINITY)).toBeNull()
+  })
+
+  it('文字列として渡す値も数値でも受け取れる', () => {
+    expect(toOptionalText('exited')).toBe('exited')
+    expect(toOptionalText(503)).toBe('503')
+    expect(toOptionalText(0)).toBe('0')
   })
 
   it('冪等キーは呼ぶたびに異なる', () => {

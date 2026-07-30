@@ -11,6 +11,7 @@ namespace ServerOperations.Api.Services.Implementations;
 public class DiagnosticRuleService(
     IDiagnosticRuleRepository rules,
     IRecoveryActionCatalog actionCatalog,
+    IRuleEngine ruleEngine,
     IAuditService audit,
     ICurrentUserAccessor currentUser,
     TimeProvider timeProvider) : IDiagnosticRuleService
@@ -100,6 +101,67 @@ public class DiagnosticRuleService(
         return DiagnosticRuleDto.From(rule);
     }
 
+    public async Task<RuleTestResponse> TestAsync(
+        RuleTestRequest request, CancellationToken ct = default)
+    {
+        var enabled = await rules.GetEnabledAsync(ct);
+
+        // 編集中のルールが渡されたら、それも評価に含める。
+        // 保存済みに同じIdがあれば置き換える(編集後の状態で確かめるため)。
+        long? candidateId = null;
+        if (request.CandidateRule is { } candidate)
+        {
+            var rule = BuildCandidate(candidate);
+            candidateId = rule.Id;
+
+            enabled = enabled.Where(r => r.Id != rule.Id).ToList();
+            enabled.Add(rule);
+        }
+
+        var matches = ruleEngine.Evaluate(enabled, request.ToContext());
+
+        return new RuleTestResponse
+        {
+            Matches = matches.Select(m => new RuleTestMatchDto
+            {
+                RuleId = m.Rule.Id,
+                RuleName = m.Rule.Name,
+                Classification = m.Rule.Classification,
+                Severity = m.Rule.Severity.ToString(),
+                RecommendedActionId = m.Rule.RecommendedActionId,
+                Rationale = m.Rationale,
+                IsCandidate = candidateId is { } id && m.Rule.Id == id,
+            }).ToList(),
+        };
+    }
+
+    /// <summary>
+    /// 編集中のルールを評価用に組み立てる。保存はしない。
+    /// 検証は保存時と同じものを通すため、保存できない条件では試験もできない。
+    /// </summary>
+    private DiagnosticRule BuildCandidate(CandidateRuleDto candidate)
+    {
+        var parsed = ValidateContent(
+            candidate.RuleType, candidate.Severity, candidate.ConditionJson,
+            candidate.RecommendedActionId);
+
+        return new DiagnosticRule
+        {
+            // 新規(Id=0)のときは既存ルールと衝突しない負のIdを使い、結果で見分けられるようにする
+            Id = candidate.Id > 0 ? candidate.Id : -1,
+            Name = candidate.Name,
+            Classification = candidate.Classification,
+            RuleType = parsed.RuleType,
+            ConditionJson = candidate.ConditionJson,
+            Severity = parsed.Severity,
+            RecommendedActionId = parsed.RecommendedActionId,
+            Priority = candidate.Priority,
+            RationaleTemplate = candidate.RationaleTemplate,
+            // 無効なルールを編集中でも判定を確かめられるようにする
+            IsEnabled = true,
+        };
+    }
+
     public RuleEditorOptionsDto GetEditorOptions() => new()
     {
         Fields = RuleConditionValidator.AllowedFields,
@@ -124,37 +186,8 @@ public class DiagnosticRuleService(
     private async Task<ParsedRule> ValidateAsync(
         SaveDiagnosticRuleRequest request, long? excludeId, CancellationToken ct)
     {
-        if (!Enum.TryParse<DiagnosticRuleType>(request.RuleType, ignoreCase: true, out var ruleType))
-        {
-            throw AppException.BadRequest("invalid_rule_type",
-                $"ルール種別は次のいずれかを指定してください: {string.Join(" / ", Enum.GetNames<DiagnosticRuleType>())}");
-        }
-
-        if (!Enum.TryParse<IncidentSeverity>(request.Severity, ignoreCase: true, out var severity))
-        {
-            throw AppException.BadRequest("invalid_severity",
-                $"深刻度は次のいずれかを指定してください: {string.Join(" / ", Enum.GetNames<IncidentSeverity>())}");
-        }
-
-        var condition = RuleConditionValidator.Validate(ruleType, request.ConditionJson);
-        if (!condition.IsValid)
-        {
-            throw AppException.BadRequest("invalid_condition", condition.Error!);
-        }
-
-        // 推奨アクションは自由記述を受け付けない。許可リストに無いIDは拒否する。
-        string? recommendedActionId = null;
-        if (!string.IsNullOrWhiteSpace(request.RecommendedActionId))
-        {
-            var candidate = request.RecommendedActionId.Trim();
-            if (actionCatalog.Find(candidate) is null)
-            {
-                throw AppException.BadRequest("invalid_recommended_action",
-                    "推奨アクションは復旧の許可リストにあるIDのみ指定できます。");
-            }
-
-            recommendedActionId = candidate;
-        }
+        var parsed = ValidateContent(
+            request.RuleType, request.Severity, request.ConditionJson, request.RecommendedActionId);
 
         if (string.IsNullOrWhiteSpace(request.Name))
         {
@@ -164,6 +197,48 @@ public class DiagnosticRuleService(
         if (await rules.ExistsByNameAsync(request.Name.Trim(), excludeId, ct))
         {
             throw AppException.Conflict("duplicate_rule_name", "同じ名前のルールが既にあります。");
+        }
+
+        return parsed;
+    }
+
+    /// <summary>
+    /// ルールの中身の検証。保存と試験の両方で同じ判定を通す。
+    /// 試験だけ緩くすると「試験は通るが保存できない」条件が生まれ、確認の意味がなくなる。
+    /// </summary>
+    private ParsedRule ValidateContent(
+        string ruleTypeText, string severityText, string conditionJson, string? recommendedActionIdText)
+    {
+        if (!Enum.TryParse<DiagnosticRuleType>(ruleTypeText, ignoreCase: true, out var ruleType))
+        {
+            throw AppException.BadRequest("invalid_rule_type",
+                $"ルール種別は次のいずれかを指定してください: {string.Join(" / ", Enum.GetNames<DiagnosticRuleType>())}");
+        }
+
+        if (!Enum.TryParse<IncidentSeverity>(severityText, ignoreCase: true, out var severity))
+        {
+            throw AppException.BadRequest("invalid_severity",
+                $"深刻度は次のいずれかを指定してください: {string.Join(" / ", Enum.GetNames<IncidentSeverity>())}");
+        }
+
+        var condition = RuleConditionValidator.Validate(ruleType, conditionJson);
+        if (!condition.IsValid)
+        {
+            throw AppException.BadRequest("invalid_condition", condition.Error!);
+        }
+
+        // 推奨アクションは自由記述を受け付けない。許可リストに無いIDは拒否する。
+        string? recommendedActionId = null;
+        if (!string.IsNullOrWhiteSpace(recommendedActionIdText))
+        {
+            var candidate = recommendedActionIdText.Trim();
+            if (actionCatalog.Find(candidate) is null)
+            {
+                throw AppException.BadRequest("invalid_recommended_action",
+                    "推奨アクションは復旧の許可リストにあるIDのみ指定できます。");
+            }
+
+            recommendedActionId = candidate;
         }
 
         return new ParsedRule(ruleType, severity, recommendedActionId);

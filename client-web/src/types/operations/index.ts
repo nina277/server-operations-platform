@@ -268,6 +268,20 @@ export interface RuleEditorOptions {
   recommendedActionIds: string[]
 }
 
+/** 保存前に判定を確かめるための仮ルール。保存時と同じ検証を通る。 */
+export interface CandidateRule {
+  /** 編集中のルールのID。新規なら0。 */
+  id: number
+  name: string
+  classification: string
+  ruleType: DiagnosticRuleType
+  conditionJson: string
+  severity: Severity
+  recommendedActionId: string | null
+  priority: number
+  rationaleTemplate: string
+}
+
 export interface RuleTestRequest {
   containerState?: string | null
   containerName?: string | null
@@ -278,6 +292,8 @@ export interface RuleTestRequest {
   httpStatus?: number | null
   httpLatencyMs?: number | null
   logExcerpt?: string | null
+  /** 保存していない編集中のルール。渡すとこれも含めて評価される。 */
+  candidateRule?: CandidateRule | null
 }
 
 export interface RuleTestMatch {
@@ -287,6 +303,8 @@ export interface RuleTestMatch {
   severity: Severity
   recommendedActionId: string | null
   rationale: string
+  /** 編集中の(保存していない)ルールによる一致か。 */
+  isCandidate: boolean
 }
 
 export interface RuleTestResponse {
