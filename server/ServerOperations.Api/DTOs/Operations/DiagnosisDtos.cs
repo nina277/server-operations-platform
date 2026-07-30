@@ -22,6 +22,12 @@ public record DiagnosticRuleDto
 
     public required int Priority { get; init; }
 
+    /// <summary>
+    /// 根拠テンプレート。編集画面が元の文言を復元できるよう返す。
+    /// これを返さないと、編集して保存したときに文言が失われる。
+    /// </summary>
+    public required string RationaleTemplate { get; init; }
+
     public required bool IsEnabled { get; init; }
 
     public static DiagnosticRuleDto From(DiagnosticRule rule) => new()
@@ -34,6 +40,7 @@ public record DiagnosticRuleDto
         Severity = rule.Severity.ToString(),
         RecommendedActionId = rule.RecommendedActionId,
         Priority = rule.Priority,
+        RationaleTemplate = rule.RationaleTemplate,
         IsEnabled = rule.IsEnabled,
     };
 }
