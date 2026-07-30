@@ -6,6 +6,7 @@ import SettingsView from '../SettingsView.vue'
 import { createTestI18n } from '@/test-utils/i18n'
 import { lastCall } from '@/test-utils/mock'
 import type { BackupSettings, NotificationSettings } from '@/types/settings'
+import type { NotificationTestResult } from '@/types/operations'
 
 const notificationSettings: NotificationSettings = {
   minimumSeverity: 'High',
@@ -34,6 +35,7 @@ const backupSettings: BackupSettings = {
 const fetchNotificationSettings = vi.fn<() => Promise<NotificationSettings>>()
 const updateNotificationSettings =
   vi.fn<(s: NotificationSettings) => Promise<NotificationSettings>>()
+const sendTestNotification = vi.fn<() => Promise<NotificationTestResult[]>>()
 const fetchBackupSettings = vi.fn<() => Promise<BackupSettings>>()
 const updateBackupSettings = vi.fn<(s: BackupSettings) => Promise<BackupSettings>>()
 
@@ -70,6 +72,7 @@ vi.mock('@/api/settings', () => ({
   runBackup: vi.fn<() => Promise<never>>(),
   fetchNotificationSettings: () => fetchNotificationSettings(),
   updateNotificationSettings: (s: NotificationSettings) => updateNotificationSettings(s),
+  sendTestNotification: () => sendTestNotification(),
   fetchBackupSettings: () => fetchBackupSettings(),
   updateBackupSettings: (s: BackupSettings) => updateBackupSettings(s),
 }))
@@ -110,6 +113,9 @@ describe('SettingsView の通知設定', () => {
     updateNotificationSettings.mockImplementation((s) => Promise.resolve(s))
     fetchBackupSettings.mockResolvedValue({ ...backupSettings })
     updateBackupSettings.mockImplementation((s) => Promise.resolve(s))
+    sendTestNotification.mockResolvedValue([
+      { channel: 'Email', success: true, skipped: false, message: null },
+    ])
   })
 
   it('保存済みの通知設定を表示する', async () => {
@@ -202,6 +208,59 @@ describe('SettingsView の通知設定', () => {
 
     expect(wrapper.find('[data-testid="notification-section"]').exists()).toBe(false)
     expect(wrapper.find('#system-name').exists()).toBe(true)
+  })
+
+  // --- テスト送信 ---
+
+  it('テスト送信できる', async () => {
+    const wrapper = await mountView()
+
+    await wrapper.get('[data-testid="test-notification"]').trigger('click')
+    await flushPromises()
+
+    expect(sendTestNotification).toHaveBeenCalledTimes(1)
+  })
+
+  it('宛先を指定する入力欄をテスト送信に付けない', async () => {
+    // 任意の宛先へ送れるようにすると踏み台になる
+    const wrapper = await mountView()
+
+    expect(wrapper.get('[data-testid="notification-section"]').text()).toContain(
+      '宛先はこの画面から指定できません',
+    )
+  })
+
+  it('チャネルごとの結果を出す', async () => {
+    sendTestNotification.mockResolvedValue([
+      { channel: 'Email', success: true, skipped: false, message: null },
+      { channel: 'Push', success: false, skipped: false, message: '接続できません。' },
+    ])
+
+    const wrapper = await mountView()
+    await wrapper.get('[data-testid="test-notification"]').trigger('click')
+    await flushPromises()
+
+    const results = wrapper.get('[data-testid="notification-test-results"]').text()
+    expect(results).toContain('Email')
+    expect(results).toContain('送信しました')
+    expect(results).toContain('Push')
+    expect(results).toContain('送信できませんでした')
+    expect(results).toContain('接続できません。')
+  })
+
+  it('未設定のチャネルは失敗と区別して出す', async () => {
+    // 「設定していない」を失敗と出すと、直すべき問題があるように見える
+    sendTestNotification.mockResolvedValue([
+      { channel: 'Push', success: false, skipped: true, message: 'Push通知は無効です。' },
+    ])
+
+    const wrapper = await mountView()
+    await wrapper.get('[data-testid="test-notification"]').trigger('click')
+    await flushPromises()
+
+    const results = wrapper.get('[data-testid="notification-test-results"]').text()
+    expect(results).toContain('未設定のため送りませんでした')
+    expect(results).not.toContain('送信できませんでした')
   })
 })
 

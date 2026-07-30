@@ -10,6 +10,8 @@ import type {
   Approval,
   Diagnosis,
   Incident,
+  IncidentNote,
+  Recurrence,
   RecoveryAction,
   RecoveryActionDefinition,
   Target,
@@ -39,6 +41,7 @@ const target: Target = {
   isEnabled: true,
   autoRecoveryEnabled: false,
   allowedContainers: ['nextcloud-app', 'nextcloud-db'],
+  collectionIntervalSeconds: null,
   settings: {},
   configuredCredentials: [],
   createdAt: '2026-07-01T00:00:00Z',
@@ -92,6 +95,10 @@ const approvals = vi.fn<() => Promise<Approval[]>>()
 const rediagnose =
   vi.fn<() => Promise<{ diagnosis: Diagnosis | null; outcome: string; message: string | null }>>()
 
+const fetchIncidentNotes = vi.fn<() => Promise<IncidentNote[]>>()
+const addIncidentNote = vi.fn<(incidentId: number, body: string) => Promise<IncidentNote>>()
+const fetchRecurrence = vi.fn<() => Promise<Recurrence>>()
+
 vi.mock('@/api/operations', () => ({
   fetchIncident: () => Promise.resolve(incident),
   fetchTarget: () => Promise.resolve(target),
@@ -100,6 +107,9 @@ vi.mock('@/api/operations', () => ({
   fetchApprovals: () => approvals(),
   fetchRecoveryActions: () => Promise.resolve([]),
   fetchRecoveryActionCatalog: () => Promise.resolve(catalog),
+  fetchIncidentNotes: () => fetchIncidentNotes(),
+  addIncidentNote: (incidentId: number, body: string) => addIncidentNote(incidentId, body),
+  fetchRecurrence: () => fetchRecurrence(),
   createApproval: vi.fn<() => Promise<Approval>>(),
   createRecoveryAction: (incidentId: number, request: unknown, key: string) =>
     createRecoveryAction(incidentId, request, key),
@@ -149,6 +159,21 @@ describe('IncidentDetailView', () => {
     setActivePinia(createPinia())
 
     approvals.mockResolvedValue([])
+    fetchIncidentNotes.mockResolvedValue([])
+    fetchRecurrence.mockResolvedValue({
+      totalCount: 0,
+      resolvedCount: 0,
+      firstOccurredAt: null,
+      previousOccurredAt: null,
+      lastSuccessfulActionId: null,
+      lastSuccessfulAt: null,
+    })
+    addIncidentNote.mockResolvedValue({
+      id: 1,
+      authorName: 'admin',
+      body: 'メモ',
+      createdAt: '2026-07-10T12:30:00Z',
+    })
     createRecoveryAction.mockResolvedValue({
       id: 1,
       incidentId: 7,
@@ -327,5 +352,100 @@ describe('IncidentDetailView', () => {
 
     expect(wrapper.text()).toContain('再診断できませんでした')
     expect(wrapper.text()).toContain('今月の上限に達しました。')
+  })
+
+  // --- 対応メモ ---
+
+  it('メモが無ければその旨を出す', async () => {
+    const wrapper = await mountView()
+
+    expect(wrapper.get('[data-testid="incident-notes"]').text()).toContain('まだメモはありません')
+  })
+
+  it('メモを書いた人と時刻を出す', async () => {
+    // 誰の判断だったか分からない記録は後から当てにできない
+    fetchIncidentNotes.mockResolvedValue([
+      {
+        id: 1,
+        authorName: 'admin',
+        body: 'ディスクの空きが原因だった。',
+        createdAt: '2026-07-10T12:30:00Z',
+      },
+    ])
+
+    const wrapper = await mountView()
+
+    const notes = wrapper.get('[data-testid="incident-notes"]').text()
+    expect(notes).toContain('admin')
+    expect(notes).toContain('ディスクの空きが原因だった。')
+  })
+
+  it('メモを追加できる', async () => {
+    const wrapper = await mountView()
+
+    await wrapper.get('#note-body').setValue('次は df を先に見る。')
+    await wrapper.get('[data-testid="note-form"]').trigger('submit')
+    await flushPromises()
+
+    expect(nthCall(addIncidentNote.mock.calls, 0)[1]).toBe('次は df を先に見る。')
+  })
+
+  it('空白だけのメモは送らない', async () => {
+    const wrapper = await mountView()
+
+    await wrapper.get('#note-body').setValue('   ')
+
+    expect(wrapper.get('[data-testid="add-note"]').attributes('disabled')).toBeDefined()
+  })
+
+  it('追加後は入力欄を空にする', async () => {
+    const wrapper = await mountView()
+
+    await wrapper.get('#note-body').setValue('対応済み')
+    await wrapper.get('[data-testid="note-form"]').trigger('submit')
+    await flushPromises()
+
+    expect((wrapper.get('#note-body').element as HTMLTextAreaElement).value).toBe('')
+  })
+
+  // --- 再発 ---
+
+  it('初めての障害ならその旨を出す', async () => {
+    const wrapper = await mountView()
+
+    expect(wrapper.get('[data-testid="recurrence"]').text()).toContain('初めてです')
+  })
+
+  it('過去の発生回数を出す', async () => {
+    fetchRecurrence.mockResolvedValue({
+      totalCount: 7,
+      resolvedCount: 5,
+      firstOccurredAt: '2026-06-01T00:00:00Z',
+      previousOccurredAt: '2026-07-09T00:00:00Z',
+      lastSuccessfulActionId: null,
+      lastSuccessfulAt: null,
+    })
+
+    const wrapper = await mountView()
+
+    expect(wrapper.get('[data-testid="recurrence"]').text()).toContain('7')
+  })
+
+  it('前回これで直った操作を出す', async () => {
+    // 同じ障害が再発したときに、まず何を試すかの手掛かりになる
+    fetchRecurrence.mockResolvedValue({
+      totalCount: 3,
+      resolvedCount: 3,
+      firstOccurredAt: '2026-06-01T00:00:00Z',
+      previousOccurredAt: '2026-07-09T00:00:00Z',
+      lastSuccessfulActionId: 'RESTART_ALLOWED_CONTAINER',
+      lastSuccessfulAt: '2026-07-09T00:05:00Z',
+    })
+
+    const wrapper = await mountView()
+
+    expect(wrapper.get('[data-testid="last-successful-action"]').text()).toContain(
+      'RESTART_ALLOWED_CONTAINER',
+    )
   })
 })

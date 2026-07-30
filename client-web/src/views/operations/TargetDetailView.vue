@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import MetricChart, { type ChartPoint } from '@/components/common/MetricChart.vue'
 import AsyncState from '@/components/common/AsyncState.vue'
 import SecretField from '@/components/common/SecretField.vue'
 import { extractErrorMessage } from '@/api/http'
@@ -19,7 +20,7 @@ import {
 } from '@/api/operations'
 import { useAsyncData } from '@/composables/useAsyncData'
 import { useAuthStore } from '@/stores/auth'
-import { formatDateTime, resultTone } from '@/utils/format'
+import { formatDateTime, resultTone, toOptionalNumber } from '@/utils/format'
 import type {
   AdapterTemplate,
   ConnectionTestResult,
@@ -51,6 +52,8 @@ const draft = ref<{
   description: string
   isEnabled: boolean
   autoRecoveryEnabled: boolean
+  /** 収集間隔(秒)。空文字は「全体の既定値に従う」を意味する。 */
+  collectionIntervalText: string
   allowedContainersText: string
   settings: Record<string, string>
   credentials: Record<string, string | null>
@@ -68,6 +71,54 @@ const healthResult = ref<HealthCheck | null>(null)
 const healthError = ref<string | null>(null)
 const checking = ref(false)
 
+/**
+ * 収集値から折れ線に載せられる系列を取り出す。
+ * payloadJsonの形は収集の種類ごとに決まっているため、種類で見分ける。
+ * 壊れた値が1件混ざっても他の点は描けるよう、点ごとに握りつぶす。
+ */
+function seriesFrom(kind: string, extract: (payload: unknown) => number | null): ChartPoint[] {
+  const points: ChartPoint[] = []
+
+  for (const metric of metrics.value) {
+    if (metric.kind !== kind || metric.payloadJson === null) {
+      continue
+    }
+
+    try {
+      const value = extract(JSON.parse(metric.payloadJson))
+      if (value !== null && Number.isFinite(value)) {
+        points.push({ at: metric.collectedAt, value })
+      }
+    } catch {
+      // この点だけ落として続ける
+    }
+  }
+
+  return points
+}
+
+/** HTTP監視の応答時間。じりじり悪化しているのか急に落ちたのかを見分けられる。 */
+const latencyPoints = computed(() =>
+  seriesFrom('http', (payload) => {
+    const value = (payload as { latencyMs?: unknown }).latencyMs
+    return typeof value === 'number' ? value : null
+  }),
+)
+
+/** 動いていないコンテナの数。0でない状態が続いているかを見る。 */
+const stoppedContainerPoints = computed(() =>
+  seriesFrom('docker', (payload) => {
+    if (!Array.isArray(payload)) {
+      return null
+    }
+
+    return payload.filter((c) => {
+      const state = (c as { state?: unknown }).state
+      return typeof state === 'string' && state.toLowerCase() !== 'running'
+    }).length
+  }),
+)
+
 /** テンプレートのうち秘密でない入力。値は設定画面で編集できる。 */
 const plainInputs = computed(() => template.value?.inputs.filter((i) => !i.secret) ?? [])
 const secretInputs = computed(() => template.value?.inputs.filter((i) => i.secret) ?? [])
@@ -78,6 +129,8 @@ function resetDraft(target: Target): void {
     description: target.description ?? '',
     isEnabled: target.isEnabled,
     autoRecoveryEnabled: target.autoRecoveryEnabled,
+    collectionIntervalText:
+      target.collectionIntervalSeconds === null ? '' : String(target.collectionIntervalSeconds),
     allowedContainersText: target.allowedContainers.join('\n'),
     settings: { ...target.settings },
     credentials: {},
@@ -144,6 +197,7 @@ async function handleSave(): Promise<void> {
       description: draft.value.description.length > 0 ? draft.value.description : null,
       isEnabled: draft.value.isEnabled,
       autoRecoveryEnabled: draft.value.autoRecoveryEnabled,
+      collectionIntervalSeconds: toOptionalNumber(draft.value.collectionIntervalText),
       allowedContainers,
       settings: draft.value.settings,
       credentials,
@@ -296,6 +350,23 @@ async function handleHealthCheck(): Promise<void> {
           </p>
 
           <div class="form-field">
+            <label for="target-interval">{{ t('targets.collectionInterval') }}</label>
+            <input
+              id="target-interval"
+              v-model="draft.collectionIntervalText"
+              type="number"
+              min="60"
+              max="3600"
+              :placeholder="t('targets.collectionIntervalDefault')"
+              aria-describedby="target-interval-help"
+              data-testid="collection-interval"
+            />
+            <p id="target-interval-help" class="form-field__help">
+              {{ t('targets.collectionIntervalHelp') }}
+            </p>
+          </div>
+
+          <div class="form-field">
             <label for="target-containers">{{ t('targets.allowedContainers') }}</label>
             <textarea
               id="target-containers"
@@ -338,6 +409,21 @@ async function handleHealthCheck(): Promise<void> {
 
         <section aria-labelledby="metrics-heading" class="section">
           <h2 id="metrics-heading" class="section__title">{{ t('targets.metrics') }}</h2>
+
+          <MetricChart
+            v-if="latencyPoints.length > 0"
+            :title="t('targets.latency')"
+            :points="latencyPoints"
+            unit="ms"
+            data-testid="latency-chart"
+          />
+          <MetricChart
+            v-if="stoppedContainerPoints.length > 0"
+            :title="t('targets.stoppedContainers')"
+            :points="stoppedContainerPoints"
+            data-testid="stopped-chart"
+          />
+
           <div v-if="metrics.length > 0" class="table-scroll">
             <table class="table">
               <thead>

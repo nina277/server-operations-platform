@@ -13,7 +13,7 @@ import type {
   RetentionSettings,
   SecretStatus,
 } from '@/types/settings'
-import type { ConnectionTestResult } from '@/types/operations'
+import type { ConnectionTestResult, NotificationTestResult } from '@/types/operations'
 
 // --- 一般設定 ---
 
@@ -55,6 +55,16 @@ export async function updateNotificationSettings(
 ): Promise<NotificationSettings> {
   return unwrap(
     await http.put<ApiResponse<NotificationSettings>>('/api/v1/settings/notification', settings),
+  )
+}
+
+/**
+ * 保存済みの設定と宛先へテスト通知を送る。
+ * 宛先は指定できない(任意の相手へ送らせないため)。
+ */
+export async function sendTestNotification(): Promise<NotificationTestResult[]> {
+  return unwrap(
+    await http.post<ApiResponse<NotificationTestResult[]>>('/api/v1/settings/notification/test'),
   )
 }
 
@@ -130,4 +140,16 @@ export async function fetchAuditLogFilterOptions(): Promise<AuditLogFilterOption
   return unwrap(
     await http.get<ApiResponse<AuditLogFilterOptions>>('/api/v1/audit-logs/filter-options'),
   )
+}
+
+/**
+ * 検索条件に沿った監査ログをCSVで取り出す。
+ * 表示中の一覧と同じ条件を渡すため、見えている範囲と出力がずれない。
+ */
+export async function exportAuditLogs(query: AuditLogQuery): Promise<Blob> {
+  const response = await http.get('/api/v1/audit-logs/export', {
+    params: query,
+    responseType: 'blob',
+  })
+  return response.data as Blob
 }

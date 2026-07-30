@@ -17,6 +17,7 @@ import {
   fetchSecretStatus,
   previewRetention,
   runBackup,
+  sendTestNotification,
   testBackupConnection,
   updateBackupSettings,
   updateNotificationSettings,
@@ -38,7 +39,7 @@ import type {
   SecretStatus,
   SeverityValue,
 } from '@/types/settings'
-import type { ConnectionTestResult } from '@/types/operations'
+import type { ConnectionTestResult, NotificationTestResult } from '@/types/operations'
 
 const { t, locale } = useI18n()
 
@@ -63,6 +64,7 @@ const backupSettings = ref<BackupSettings | null>(null)
 const recipientsText = ref('')
 
 const newCidr = ref({ cidr: '', description: '' })
+const notificationTestResults = ref<NotificationTestResult[] | null>(null)
 const backupResult = ref<ConnectionTestResult | null>(null)
 
 const loading = ref(true)
@@ -172,6 +174,12 @@ const handleSaveNotification = () =>
       notification.value = saved
       recipientsText.value = saved.emailRecipients.join('\n')
     }
+  })
+
+/** 保存済みの設定と宛先へ1通送る。宛先はこの画面から指定できない。 */
+const handleTestNotification = () =>
+  run(async () => {
+    notificationTestResults.value = await sendTestNotification()
   })
 
 const handleSaveBackupSettings = () =>
@@ -514,6 +522,40 @@ const handleSaveAiLimits = () =>
             {{ t('common.save') }}
           </button>
         </form>
+
+        <div class="test-send">
+          <button
+            type="button"
+            class="button"
+            :disabled="busy"
+            data-testid="test-notification"
+            @click="handleTestNotification"
+          >
+            {{ t('settings.testNotification') }}
+          </button>
+          <p class="form-field__help">{{ t('settings.testNotificationHelp') }}</p>
+        </div>
+
+        <ul
+          v-if="notificationTestResults"
+          class="test-results"
+          data-testid="notification-test-results"
+        >
+          <li v-for="result in notificationTestResults" :key="result.channel">
+            <StatusBadge
+              :tone="result.success ? 'low' : result.skipped ? 'medium' : 'critical'"
+              :label="
+                result.success
+                  ? t('settings.testSent')
+                  : result.skipped
+                    ? t('settings.testSkipped')
+                    : t('settings.testFailed')
+              "
+            />
+            <strong>{{ result.channel }}</strong>
+            <span v-if="result.message">{{ result.message }}</span>
+          </li>
+        </ul>
       </section>
 
       <section aria-labelledby="cidrs-heading" class="section">
@@ -893,6 +935,24 @@ const handleSaveAiLimits = () =>
 
 .definition dt {
   color: var(--color-text-muted);
+}
+
+.test-send {
+  margin-top: var(--spacing-md);
+}
+
+.test-results {
+  list-style: none;
+  margin: var(--spacing-md) 0;
+  padding: 0;
+}
+
+.test-results li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-xs);
 }
 
 .secret-row {

@@ -6,7 +6,12 @@ import { h } from 'vue'
 import TargetDetailView from '../TargetDetailView.vue'
 import { createTestI18n } from '@/test-utils/i18n'
 import { nthCall } from '@/test-utils/mock'
-import type { AdapterTemplate, Target, UpdateTargetRequest } from '@/types/operations'
+import type {
+  AdapterTemplate,
+  MetricSnapshot,
+  Target,
+  UpdateTargetRequest,
+} from '@/types/operations'
 import type { CurrentUser } from '@/types/auth'
 
 const target: Target = {
@@ -17,6 +22,7 @@ const target: Target = {
   isEnabled: true,
   autoRecoveryEnabled: false,
   allowedContainers: ['nextcloud-app'],
+  collectionIntervalSeconds: null,
   settings: { socketPath: '/var/run/docker.sock' },
   configuredCredentials: ['apiToken'],
   createdAt: '2026-07-01T00:00:00Z',
@@ -57,8 +63,11 @@ const admin: CurrentUser = { id: 1, username: 'admin', role: 'OperatorAdmin', mf
 
 const updateTarget = vi.fn<(id: number, request: UpdateTargetRequest) => Promise<Target>>()
 
+const fetchTarget = vi.fn<() => Promise<Target>>()
+const fetchTargetMetrics = vi.fn<() => Promise<MetricSnapshot[]>>()
+
 vi.mock('@/api/operations', () => ({
-  fetchTarget: () => Promise.resolve(target),
+  fetchTarget: () => fetchTarget(),
   fetchTargetCapabilities: () =>
     Promise.resolve({
       targetId: 3,
@@ -69,7 +78,7 @@ vi.mock('@/api/operations', () => ({
       initialRules: [],
     }),
   fetchAdapterTemplates: () => Promise.resolve([template]),
-  fetchTargetMetrics: () => Promise.resolve([]),
+  fetchTargetMetrics: () => fetchTargetMetrics(),
   fetchTargetLogs: () => Promise.resolve([]),
   updateTarget: (id: number, request: UpdateTargetRequest) => updateTarget(id, request),
   testTargetConnection: vi.fn<() => Promise<never>>(),
@@ -110,6 +119,8 @@ describe('TargetDetailView', () => {
     localStorage.setItem('sop.refreshToken', 'refresh-1')
     vi.clearAllMocks()
     setActivePinia(createPinia())
+    fetchTarget.mockResolvedValue(target)
+    fetchTargetMetrics.mockResolvedValue([])
     updateTarget.mockResolvedValue(target)
 
     const { useAuthStore } = await import('@/stores/auth')
@@ -184,5 +195,127 @@ describe('TargetDetailView', () => {
     const wrapper = await mountView()
 
     expect(wrapper.get('#target-auto-recovery-help').text()).toContain('危険度が低い操作')
+  })
+
+  // --- 収集間隔 ---
+
+  it('未設定なら空欄で出す', async () => {
+    // 空欄は「全体の既定値に従う」を意味する
+    const wrapper = await mountView()
+
+    expect((wrapper.get('[data-testid="collection-interval"]').element as HTMLInputElement).value)
+      .toBe('')
+  })
+
+  it('設定済みなら値を出す', async () => {
+    fetchTarget.mockResolvedValue({ ...target, collectionIntervalSeconds: 300 })
+
+    const wrapper = await mountView()
+
+    expect((wrapper.get('[data-testid="collection-interval"]').element as HTMLInputElement).value)
+      .toBe('300')
+  })
+
+  it('収集間隔を送れる', async () => {
+    const wrapper = await mountView()
+
+    await wrapper.get('[data-testid="collection-interval"]').setValue(300)
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(nthCall(updateTarget.mock.calls, 0)[1].collectionIntervalSeconds).toBe(300)
+  })
+
+  it('空欄なら既定値に従う指定として送る', async () => {
+    // 空文字を数値に変換すると0になり、あり得ない間隔を送ることになる
+    fetchTarget.mockResolvedValue({ ...target, collectionIntervalSeconds: 300 })
+
+    const wrapper = await mountView()
+    await wrapper.get('[data-testid="collection-interval"]').setValue('')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(nthCall(updateTarget.mock.calls, 0)[1].collectionIntervalSeconds).toBeNull()
+  })
+
+  // --- 収集値のグラフ ---
+
+  it('HTTP監視の応答時間を折れ線で出す', async () => {
+    fetchTargetMetrics.mockResolvedValue([
+      {
+        id: 1,
+        collectedAt: '2026-07-10T12:00:00Z',
+        kind: 'http',
+        status: 'Ok',
+        payloadJson: JSON.stringify({ success: true, latencyMs: 120 }),
+        errorMessage: null,
+      },
+      {
+        id: 2,
+        collectedAt: '2026-07-10T12:01:00Z',
+        kind: 'http',
+        status: 'Ok',
+        payloadJson: JSON.stringify({ success: true, latencyMs: 340 }),
+        errorMessage: null,
+      },
+    ])
+
+    const wrapper = await mountView()
+
+    expect(wrapper.find('svg').exists()).toBe(true)
+    expect(wrapper.text()).toContain('340')
+  })
+
+  it('動いていないコンテナ数を折れ線で出す', async () => {
+    fetchTargetMetrics.mockResolvedValue([
+      {
+        id: 1,
+        collectedAt: '2026-07-10T12:00:00Z',
+        kind: 'docker',
+        status: 'Ok',
+        payloadJson: JSON.stringify([
+          { name: 'web', state: 'running' },
+          { name: 'db', state: 'exited' },
+        ]),
+        errorMessage: null,
+      },
+    ])
+
+    const wrapper = await mountView()
+
+    expect(wrapper.find('svg').exists()).toBe(true)
+  })
+
+  it('壊れた収集値が混ざっても他の点は描く', async () => {
+    // 1件のJSONが壊れているだけでグラフ全体が消えるのは困る
+    fetchTargetMetrics.mockResolvedValue([
+      {
+        id: 1,
+        collectedAt: '2026-07-10T12:00:00Z',
+        kind: 'http',
+        status: 'Ok',
+        payloadJson: 'これはJSONではない',
+        errorMessage: null,
+      },
+      {
+        id: 2,
+        collectedAt: '2026-07-10T12:01:00Z',
+        kind: 'http',
+        status: 'Ok',
+        payloadJson: JSON.stringify({ latencyMs: 55 }),
+        errorMessage: null,
+      },
+    ])
+
+    const wrapper = await mountView()
+
+    expect(wrapper.find('svg').exists()).toBe(true)
+    expect(wrapper.text()).toContain('55')
+  })
+
+  it('数値の収集値が無ければグラフを出さない', async () => {
+    const wrapper = await mountView()
+
+    expect(wrapper.find('svg').exists()).toBe(false)
   })
 })
