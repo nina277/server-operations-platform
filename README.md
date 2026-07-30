@@ -87,6 +87,7 @@ Frontend:
 
     cd server && dotnet build && dotnet test
     cd client-web && npm run test:unit -- --run && npm run lint && npm run type-check
+    cd client-web && npm audit --omit=dev --audit-level=high
     ./scripts/check-release-guards.sh
 
 ## CI
@@ -95,7 +96,7 @@ Frontend:
 
 - Release guards: `latest`タグ・Dockerソケットの扱い・`.env`・EF Coreの版・依存の脆弱性を検査する
 - Backend: `dotnet restore` → `dotnet build` → `dotnet test`
-- Frontend: `npm ci` → `lint` → `type-check` → `test:unit` → `build`
+- Frontend: `npm ci` → `audit`(本番依存) → `lint` → `type-check` → `test:unit` → `build`
 
 CIが失敗しているPRはマージしない。
 

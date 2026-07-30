@@ -308,6 +308,65 @@ public class AuthorizationEndpointsTests(AuthorizedApiFactory factory)
         Assert.NotEqual(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
+    // --- 自分のアカウント操作 ---
+
+    [Fact]
+    public async Task パスワード変更は未認証で401()
+    {
+        using var client = factory.CreateClient();
+
+        var response = await client.PutAsJsonAsync("/api/v1/me/password", new
+        {
+            currentPassword = "x",
+            newPassword = "yyyyyyyyyyyy",
+        });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task パスワード変更は役割を問わず行える()
+    {
+        // 自分のパスワードは誰でも変えられる必要がある。
+        // 管理者専用にすると、閲覧者が初期パスワードを変えられない。
+        using var client = factory.CreateClientAs(UserRole.Viewer);
+
+        var response = await client.PutAsJsonAsync("/api/v1/me/password", new
+        {
+            currentPassword = "x",
+            newPassword = "yyyyyyyyyyyy",
+        });
+
+        Assert.NotEqual(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task MFAの設定は役割を問わず行える()
+    {
+        // MFAを設定できないと管理操作に進めないため、ここで役割を要求しない
+        using var client = factory.CreateClientAs(UserRole.Viewer);
+
+        var response = await client.PostAsync("/api/v1/auth/mfa/setup", content: null);
+
+        Assert.NotEqual(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task MFAの再認証が古くてもパスワードは変えられる()
+    {
+        // 再認証が切れて詰むのを防ぐ
+        using var staleFactory = new AuthorizedApiFactory { MfaRecentlyVerified = false };
+        using var client = staleFactory.CreateClientAs(UserRole.OperatorAdmin);
+
+        var response = await client.PutAsJsonAsync("/api/v1/me/password", new
+        {
+            currentPassword = "x",
+            newPassword = "yyyyyyyyyyyy",
+        });
+
+        Assert.NotEqual(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
     // --- MFA再認証の要求 ---
 
     /// <summary>

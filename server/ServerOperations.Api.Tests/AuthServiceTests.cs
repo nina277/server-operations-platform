@@ -213,4 +213,161 @@ public class AuthServiceTests
         Assert.StartsWith("$2", user.PasswordHash);
         Assert.True(BCrypt.Net.BCrypt.Verify("correct-password", user.PasswordHash));
     }
+
+    // --- パスワード変更 ---
+
+    [Fact]
+    public async Task パスワードを変更できる()
+    {
+        var user = AddUser(password: "current-password-1");
+
+        var result = await CreateSut().ChangePasswordAsync(user.Id, new ChangePasswordRequest
+        {
+            CurrentPassword = "current-password-1",
+            NewPassword = "brand-new-password-1",
+        });
+
+        Assert.True(result.OtherSessionsRevoked);
+        Assert.True(BCrypt.Net.BCrypt.Verify("brand-new-password-1", user.PasswordHash));
+    }
+
+    [Fact]
+    public async Task 現在のパスワードが違えば変更できない()
+    {
+        var user = AddUser(password: "current-password-1");
+        var originalHash = user.PasswordHash;
+
+        var ex = await Assert.ThrowsAsync<AppException>(() =>
+            CreateSut().ChangePasswordAsync(user.Id, new ChangePasswordRequest
+            {
+                CurrentPassword = "wrong-password",
+                NewPassword = "brand-new-password-1",
+            }));
+
+        Assert.Equal("invalid_current_password", ex.Code);
+        Assert.Equal(originalHash, user.PasswordHash);
+    }
+
+    [Fact]
+    public async Task 現在のパスワードが違う試行を監査に残す()
+    {
+        var user = AddUser(password: "current-password-1");
+
+        await Assert.ThrowsAsync<AppException>(() =>
+            CreateSut().ChangePasswordAsync(user.Id, new ChangePasswordRequest
+            {
+                CurrentPassword = "wrong-password",
+                NewPassword = "brand-new-password-1",
+            }));
+
+        Assert.Contains(_audit.Entries,
+            e => e.Action == "auth.password.change" && e.Result == AuditResult.Failure);
+    }
+
+    [Fact]
+    public async Task 同じパスワードへの変更は受け付けない()
+    {
+        var user = AddUser(password: "current-password-1");
+
+        var ex = await Assert.ThrowsAsync<AppException>(() =>
+            CreateSut().ChangePasswordAsync(user.Id, new ChangePasswordRequest
+            {
+                CurrentPassword = "current-password-1",
+                NewPassword = "current-password-1",
+            }));
+
+        Assert.Equal("password_unchanged", ex.Code);
+    }
+
+    [Fact]
+    public async Task 変更したら他の端末のセッションを失効させる()
+    {
+        // 漏えい後の変更で古いセッションが残らないようにする
+        var user = AddUser(password: "current-password-1");
+        var sut = CreateSut();
+        await sut.LoginAsync(new LoginRequest { Username = "admin", Password = "current-password-1" });
+        await sut.LoginAsync(new LoginRequest { Username = "admin", Password = "current-password-1" });
+
+        Assert.Equal(2, _refreshTokens.Tokens.Count(t => t.RevokedAt is null));
+
+        await sut.ChangePasswordAsync(user.Id, new ChangePasswordRequest
+        {
+            CurrentPassword = "current-password-1",
+            NewPassword = "brand-new-password-1",
+        });
+
+        Assert.DoesNotContain(_refreshTokens.Tokens, t => t.RevokedAt is null);
+    }
+
+    [Fact]
+    public async Task 変更後は古いリフレッシュトークンで更新できない()
+    {
+        var user = AddUser(password: "current-password-1");
+        var sut = CreateSut();
+        var pair = await sut.LoginAsync(
+            new LoginRequest { Username = "admin", Password = "current-password-1" });
+
+        await sut.ChangePasswordAsync(user.Id, new ChangePasswordRequest
+        {
+            CurrentPassword = "current-password-1",
+            NewPassword = "brand-new-password-1",
+        });
+
+        var ex = await Assert.ThrowsAsync<AppException>(() => sut.RefreshAsync(pair.RefreshToken));
+        Assert.Equal("invalid_refresh_token", ex.Code);
+    }
+
+    [Fact]
+    public async Task 変更後は新しいパスワードでログインできる()
+    {
+        var user = AddUser(password: "current-password-1");
+        var sut = CreateSut();
+
+        await sut.ChangePasswordAsync(user.Id, new ChangePasswordRequest
+        {
+            CurrentPassword = "current-password-1",
+            NewPassword = "brand-new-password-1",
+        });
+
+        var pair = await sut.LoginAsync(
+            new LoginRequest { Username = "admin", Password = "brand-new-password-1" });
+
+        Assert.NotEmpty(pair.AccessToken);
+    }
+
+    [Fact]
+    public async Task 変更後は古いパスワードでログインできない()
+    {
+        var user = AddUser(password: "current-password-1");
+        var sut = CreateSut();
+
+        await sut.ChangePasswordAsync(user.Id, new ChangePasswordRequest
+        {
+            CurrentPassword = "current-password-1",
+            NewPassword = "brand-new-password-1",
+        });
+
+        var ex = await Assert.ThrowsAsync<AppException>(() => sut.LoginAsync(
+            new LoginRequest { Username = "admin", Password = "current-password-1" }));
+
+        Assert.Equal("invalid_credentials", ex.Code);
+    }
+
+    [Fact]
+    public async Task 監査にパスワードそのものを残さない()
+    {
+        var user = AddUser(password: "current-password-1");
+
+        await CreateSut().ChangePasswordAsync(user.Id, new ChangePasswordRequest
+        {
+            CurrentPassword = "current-password-1",
+            NewPassword = "brand-new-password-1",
+        });
+
+        foreach (var entry in _audit.Entries)
+        {
+            Assert.DoesNotContain("current-password-1", entry.Details ?? string.Empty);
+            Assert.DoesNotContain("brand-new-password-1", entry.Details ?? string.Empty);
+        }
+    }
 }

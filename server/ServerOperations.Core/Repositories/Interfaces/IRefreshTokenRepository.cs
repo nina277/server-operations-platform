@@ -11,5 +11,11 @@ public interface IRefreshTokenRepository
     /// <summary>同一系列(FamilyId)の未失効トークンをすべて失効させる。</summary>
     Task RevokeFamilyAsync(Guid familyId, DateTime revokedAtUtc, CancellationToken ct = default);
 
+    /// <summary>
+    /// 利用者の有効なリフレッシュトークンをすべて失効させる。
+    /// パスワード変更時に他の端末のセッションを切るために使う。
+    /// </summary>
+    Task RevokeAllForUserAsync(long userId, DateTime revokedAtUtc, CancellationToken ct = default);
+
     Task SaveChangesAsync(CancellationToken ct = default);
 }

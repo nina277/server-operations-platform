@@ -60,6 +60,17 @@ public class FakeRefreshTokenRepository(FakeUserRepository? users = null) : IRef
         return Task.CompletedTask;
     }
 
+    public Task RevokeAllForUserAsync(
+        long userId, DateTime revokedAtUtc, CancellationToken ct = default)
+    {
+        foreach (var token in Tokens.Where(t => t.UserId == userId && t.RevokedAt == null))
+        {
+            token.RevokedAt = revokedAtUtc;
+        }
+
+        return Task.CompletedTask;
+    }
+
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
 }
 

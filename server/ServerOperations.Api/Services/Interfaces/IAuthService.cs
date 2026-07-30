@@ -11,4 +11,11 @@ public interface IAuthService
     Task LogoutAsync(string refreshToken, CancellationToken ct = default);
 
     Task<MeResponse> GetMeAsync(long userId, CancellationToken ct = default);
+
+    /// <summary>
+    /// 自分のパスワードを変更する。本人確認のため現在のパスワードを要求し、
+    /// 変更後は他の端末のセッションを失効させる。
+    /// </summary>
+    Task<ChangePasswordResponse> ChangePasswordAsync(
+        long userId, ChangePasswordRequest request, CancellationToken ct = default);
 }
