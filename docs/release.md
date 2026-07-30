@@ -47,10 +47,19 @@ grep -rn 'BEGIN PRIVATE KEY\|password=' --include='*.json' --include='*.yml' . |
 
 `.env` はGit管理しない。実際のIPアドレス・トークン・パスワードをコミットしない。
 
-### 依存の版
+### 依存の版と脆弱性
 
 - **EF Core は 9.0 で固定する。10.x へ更新しない。**
 - 依存を上げたときは、移行(マイグレーション)の生成物に差分が出ていないか確認する
+
+推移的な依存も含めて脆弱性を確認する。
+
+```bash
+cd server && dotnet list package --include-transitive --vulnerable
+```
+
+`./scripts/check-release-guards.sh` でも同じ確認を行う(CIでも実行される)。
+実際には通らないコードパスであっても、依存として残さない方針とする。
 
 ---
 

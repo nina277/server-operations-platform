@@ -93,7 +93,7 @@ Frontend:
 
 `main` へのPull Requestとpushで GitHub Actions(`.github/workflows/ci.yml`)が自動実行される。
 
-- Release guards: `latest`タグ・Dockerソケットの扱い・`.env`・EF Coreの版を検査する
+- Release guards: `latest`タグ・Dockerソケットの扱い・`.env`・EF Coreの版・依存の脆弱性を検査する
 - Backend: `dotnet restore` → `dotnet build` → `dotnet test`
 - Frontend: `npm ci` → `lint` → `type-check` → `test:unit` → `build`
 

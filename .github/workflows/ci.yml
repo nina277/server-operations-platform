@@ -13,7 +13,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 禁止事項のうち機械的に確かめられるもの(latestタグ・Dockerソケット・.env・EF Coreの版)
+      # 依存の脆弱性検査に必要
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      # 禁止事項のうち機械的に確かめられるもの
+      # (latestタグ・Dockerソケット・.env・EF Coreの版・依存の脆弱性)
       - name: Check release guards
         run: ./scripts/check-release-guards.sh
 

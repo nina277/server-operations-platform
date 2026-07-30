@@ -201,8 +201,9 @@ public class LabScenarioTests
         });
 
         var match = Assert.Single(
-            matches.Where(m => m.Rule.Classification == "MemoryPressure"
-                && m.Rule.RuleType == DiagnosticRuleType.Regex));
+            matches,
+            m => m.Rule.Classification == "MemoryPressure"
+                && m.Rule.RuleType == DiagnosticRuleType.Regex);
         Assert.Equal(IncidentSeverity.High, match.Rule.Severity);
     }
 
@@ -232,8 +233,9 @@ public class LabScenarioTests
         });
 
         var match = Assert.Single(
-            matches.Where(m => m.Rule.Classification == "DiskPressure"
-                && m.Rule.RuleType == DiagnosticRuleType.Regex));
+            matches,
+            m => m.Rule.Classification == "DiskPressure"
+                && m.Rule.RuleType == DiagnosticRuleType.Regex);
         // ディスク逼迫は再起動で直らないため、自動操作の対象にしない
         Assert.Null(match.Rule.RecommendedActionId);
     }
@@ -245,7 +247,8 @@ public class LabScenarioTests
             _ruleEngine.Evaluate(Rules(), new DiagnosticContext
             {
                 LogExcerpt = "write failed: No space left on device",
-            }).Where(m => m.Rule.Classification == "DiskPressure"));
+            }),
+            m => m.Rule.Classification == "DiskPressure");
 
         var action = await CreateAutoRecovery().TryRecoverAsync(
             Target(allowedContainers: "lab-disk"),

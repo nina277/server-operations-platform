@@ -17,7 +17,6 @@ public class RecoveryService(
     IMonitoringTargetRepository targets,
     IRecoveryActionRepository actions,
     IRecoveryApprovalRepository approvals,
-    IHealthCheckRepository healthChecks,
     IAdapterTemplateCatalog templates,
     IRecoveryActionCatalog actionCatalog,
     IRecoveryRateLimiter rateLimiter,

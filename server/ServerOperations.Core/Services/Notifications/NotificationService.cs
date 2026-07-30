@@ -74,8 +74,8 @@ public class NotificationService(
         var notification = new Notification
         {
             Severity = request.Severity,
-            Title = Truncate(request.Title, 200),
-            Body = Truncate(request.Body, 2000),
+            Title = TruncateRequired(request.Title, 200),
+            Body = TruncateRequired(request.Body, 2000),
             AggregationKey = request.AggregationKey,
             IncidentId = request.IncidentId,
             TargetId = request.TargetId,
@@ -130,6 +130,11 @@ public class NotificationService(
         return notification;
     }
 
+    /// <summary>任意項目の切り詰め。nullはnullのまま返す。</summary>
     private static string? Truncate(string? value, int maxLength) =>
         value is null || value.Length <= maxLength ? value : value[..maxLength];
+
+    /// <summary>必須項目の切り詰め。呼び出し側がnullを渡さない項目に使う。</summary>
+    private static string TruncateRequired(string value, int maxLength) =>
+        value.Length <= maxLength ? value : value[..maxLength];
 }

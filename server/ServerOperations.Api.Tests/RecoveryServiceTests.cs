@@ -24,7 +24,7 @@ public class RecoveryServiceTests
     private readonly RecoveryLimits _limits = new();
 
     private RecoveryService CreateSut() => new(
-        _incidents, _targets, _actions, _approvals, _healthChecks,
+        _incidents, _targets, _actions, _approvals,
         new AdapterTemplateCatalog(), new RecoveryActionCatalog(),
         new RecoveryRateLimiter(_actions, _limits, _time),
         _queue, _healthCheckService, _audit, _currentUser, _limits, _time);
