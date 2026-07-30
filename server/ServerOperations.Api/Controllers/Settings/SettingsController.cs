@@ -95,6 +95,19 @@ public class SettingsController(
     }
 
     /// <summary>
+    /// 保存済みの設定と宛先へテスト通知を送る。
+    /// 宛先は保存済みのものだけを使う。任意の宛先へ送れる口は用意しない
+    /// (踏み台としてメールを送らせる経路になるため)。
+    /// </summary>
+    [HttpPost("notification/test")]
+    public async Task<ActionResult<ApiResponse<List<DTOs.Operations.NotificationTestResultDto>>>>
+        TestNotification(CancellationToken ct)
+    {
+        var results = await settingsService.SendTestNotificationAsync(ct);
+        return Ok(ApiResponse<List<DTOs.Operations.NotificationTestResultDto>>.Ok(results, TraceId()));
+    }
+
+    /// <summary>
     /// バックアップ設定。アクセスキー・シークレットキーは含まない。
     /// </summary>
     [HttpGet("backup-settings")]

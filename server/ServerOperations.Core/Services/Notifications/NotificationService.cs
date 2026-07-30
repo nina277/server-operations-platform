@@ -34,6 +34,7 @@ public class NotificationService(
     INotificationRepository notifications,
     INotificationSettingsProvider settingsProvider,
     IEnumerable<INotificationChannelSender> channels,
+    IMaintenanceService maintenance,
     TimeProvider timeProvider,
     ILogger<NotificationService> logger) : INotificationService
 {
@@ -44,6 +45,20 @@ public class NotificationService(
         if (request.Severity < settings.MinimumSeverity)
         {
             return null;
+        }
+
+        // 計画停止中は知らせない。インシデントの記録は別経路で残るため、
+        // 期間が明けてから何が起きていたかは追える。
+        if (request.TargetId is { } targetId)
+        {
+            var state = await maintenance.GetStateAsync(targetId, ct);
+            if (state.SuppressNotifications)
+            {
+                logger.LogInformation(
+                    "Notification suppressed for target {TargetId} during maintenance: {Reason}",
+                    targetId, state.Reason);
+                return null;
+            }
         }
 
         var now = timeProvider.GetUtcNow().UtcDateTime;

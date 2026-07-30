@@ -238,6 +238,7 @@ public class PromptInjectionTests
             execution,
             new FakeAuditLogRepository(),
             new FakeNotificationService(),
+            new FakeMaintenanceService(),
             time,
             NullLogger<AutoRecoveryService>.Instance);
 

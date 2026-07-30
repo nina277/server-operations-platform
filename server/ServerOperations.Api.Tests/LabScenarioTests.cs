@@ -24,6 +24,7 @@ public class LabScenarioTests
     private readonly FakeNotificationService _notifications = new();
     private readonly TestTimeProvider _time = new(BaseTime);
     private readonly RecoveryLimits _limits = new();
+    private readonly FakeMaintenanceService _maintenance = new();
 
     private static List<DiagnosticRule> Rules() => DefaultDiagnosticRules.Create(BaseTime.UtcDateTime);
 
@@ -37,6 +38,7 @@ public class LabScenarioTests
             _execution,
             _auditLogs,
             _notifications,
+            _maintenance,
             _time,
             NullLogger<AutoRecoveryService>.Instance);
     }

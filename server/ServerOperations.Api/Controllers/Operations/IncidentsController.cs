@@ -17,8 +17,56 @@ public class IncidentsController(
     IDiagnosisRepository diagnoses,
     ServerOperations.Core.Services.Ai.IAiDiagnosisGateway aiGateway,
     IIncidentLogRepository incidentLogs,
-    IIncidentRepository incidentRepository) : ControllerBase
+    IIncidentRepository incidentRepository,
+    IIncidentNoteService notes,
+    IOperationsInsightsRepository insights) : ControllerBase
 {
+    /// <summary>
+    /// この障害が過去に何回起きたか、前回は何をして直ったか。
+    /// 同じ障害の再発時に、前回の対応をたどれるようにする。
+    /// </summary>
+    [HttpGet("{id:long}/recurrence")]
+    public async Task<ActionResult<ApiResponse<RecurrenceDto>>> GetRecurrence(
+        long id, CancellationToken ct)
+    {
+        var incident = await incidentRepository.FindByIdAsync(id, ct)
+            ?? throw AppException.NotFound("incident_not_found", "インシデントが見つかりません。");
+
+        var summary = await insights.GetRecurrenceAsync(
+            incident.TargetId, incident.SignatureSha256, incident.Id, ct);
+
+        return Ok(ApiResponse<RecurrenceDto>.Ok(new RecurrenceDto
+        {
+            TotalCount = summary.TotalCount,
+            ResolvedCount = summary.ResolvedCount,
+            FirstOccurredAt = summary.FirstOccurredAt,
+            PreviousOccurredAt = summary.PreviousOccurredAt,
+            LastSuccessfulActionId = summary.LastSuccessfulActionId,
+            LastSuccessfulAt = summary.LastSuccessfulAt,
+        }, TraceId()));
+    }
+
+    [HttpGet("{id:long}/notes")]
+    public async Task<ActionResult<ApiResponse<List<IncidentNoteDto>>>> GetNotes(
+        long id, CancellationToken ct)
+    {
+        var items = await notes.GetForIncidentAsync(id, ct);
+        return Ok(ApiResponse<List<IncidentNoteDto>>.Ok(items, TraceId()));
+    }
+
+    /// <summary>
+    /// 対応メモを追加する。運用の判断を書き残す操作のため、
+    /// 閲覧のみの利用者には開かない。書き換えと削除の口は用意しない。
+    /// </summary>
+    [HttpPost("{id:long}/notes")]
+    [Authorize(Policy = AuthorizationPolicies.AdminWithRecentMfa)]
+    public async Task<ActionResult<ApiResponse<IncidentNoteDto>>> AddNote(
+        long id, [FromBody] CreateIncidentNoteRequest request, CancellationToken ct)
+    {
+        var note = await notes.AddAsync(id, request, ct);
+        return Ok(ApiResponse<IncidentNoteDto>.Ok(note, TraceId()));
+    }
+
     /// <summary>
     /// AIによる再診断を要求する。AI無効・上限到達・失敗時は診断を作らず理由を返す(復旧は開始しない)。
     /// </summary>

@@ -29,6 +29,13 @@ public interface ISettingsService
     /// </summary>
     Task<BackupSettingsDto> UpdateBackupAsync(
         BackupSettingsDto request, CancellationToken ct = default);
+
+    /// <summary>
+    /// 保存済みの設定と宛先へテスト通知を送り、チャネルごとの結果を返す。
+    /// 宛先は指定できない(任意の相手へ送らせないため)。
+    /// </summary>
+    Task<List<DTOs.Operations.NotificationTestResultDto>> SendTestNotificationAsync(
+        CancellationToken ct = default);
 }
 
 public interface ISecretsService

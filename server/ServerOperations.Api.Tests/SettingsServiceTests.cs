@@ -12,7 +12,10 @@ public class SettingsServiceTests
     private readonly FakeCurrentUserAccessor _currentUser = new();
     private readonly TestTimeProvider _time = new(new DateTimeOffset(2026, 7, 10, 12, 0, 0, TimeSpan.Zero));
 
-    private SettingsService CreateSut() => new(_repo, _audit, _currentUser, _time);
+    private readonly FakeNotificationTestService _notificationTest = new();
+
+    private SettingsService CreateSut() =>
+        new(_repo, _audit, _currentUser, _notificationTest, _time);
 
     [Fact]
     public async Task GetProfile_ReturnsDefaults_WhenUnset()

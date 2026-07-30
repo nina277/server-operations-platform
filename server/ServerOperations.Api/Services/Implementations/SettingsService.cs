@@ -12,6 +12,7 @@ public class SettingsService(
     ISystemSettingRepository settings,
     IAuditService audit,
     ICurrentUserAccessor currentUser,
+    Core.Services.Notifications.INotificationTestService notificationTest,
     TimeProvider timeProvider) : ISettingsService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -86,6 +87,30 @@ public class SettingsService(
 
         return await UpdateAsync(
             SettingCategory.Backup, DefaultBackup, request, "settings.backup.update", ct);
+    }
+
+    public async Task<List<DTOs.Operations.NotificationTestResultDto>> SendTestNotificationAsync(
+        CancellationToken ct = default)
+    {
+        var results = await notificationTest.SendTestAsync(ct);
+
+        // 送信できたかどうかは設定の確認結果として残す。
+        // 宛先・ホスト名・エラー本文は載せない(監査から接続先が読み取れないようにする)。
+        var succeeded = results.Count(r => r.Success);
+        var failed = results.Count(r => !r.Success && !r.Skipped);
+        await audit.RecordAsync(
+            "settings.notification.test", "Settings", "notification",
+            failed == 0 ? AuditResult.Success : AuditResult.Failure,
+            currentUser.UserId, currentUser.Username,
+            $"sent={succeeded} failed={failed} skipped={results.Count(r => r.Skipped)}", ct);
+
+        return results.Select(r => new DTOs.Operations.NotificationTestResultDto
+        {
+            Channel = r.Channel,
+            Success = r.Success,
+            Skipped = r.Skipped,
+            Message = r.Message,
+        }).ToList();
     }
 
     /// <summary>

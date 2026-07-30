@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using ServerOperations.Core.Services;
 
 namespace ServerOperations.Api.DTOs.Operations;
 
@@ -38,6 +39,11 @@ public record TargetDto
 
     /// <summary>操作を許可するコンテナ名。空の場合はどのコンテナも操作できない。</summary>
     public required IReadOnlyList<string> AllowedContainers { get; init; }
+
+    /// <summary>
+    /// この対象の収集間隔(秒)。nullなら全体の既定値で動く。
+    /// </summary>
+    public int? CollectionIntervalSeconds { get; init; }
 
     /// <summary>非秘密の設定値。秘密値(資格情報)は種別名のみconfiguredCredentialsで返す。</summary>
     public required IReadOnlyDictionary<string, string> Settings { get; init; }
@@ -89,6 +95,14 @@ public record UpdateTargetRequest
     /// 操作を許可するコンテナ名。空にするとどのコンテナも操作できなくなる。
     /// </summary>
     public List<string> AllowedContainers { get; init; } = [];
+
+    /// <summary>
+    /// この対象の収集間隔(秒)。nullなら全体の既定値を使う。
+    /// 実際に使える値へ丸められるため、指定した値がそのまま返るとは限らない。
+    /// </summary>
+    [Range(CollectionInterval.MinSeconds, CollectionInterval.MaxSeconds,
+        ErrorMessage = "収集間隔は60〜3600秒の範囲で指定してください。")]
+    public int? CollectionIntervalSeconds { get; init; }
 
     public Dictionary<string, string> Settings { get; init; } = [];
 

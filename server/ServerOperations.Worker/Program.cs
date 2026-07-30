@@ -68,6 +68,8 @@ if (!string.IsNullOrWhiteSpace(connectionString))
     builder.Services.AddScoped<IHealthCheckService, HealthCheckService>();
     builder.Services.AddScoped<IRecoveryExecutionService, RecoveryExecutionService>();
     builder.Services.AddScoped<IAuditLogRepository, AuditLogRepository>();
+    builder.Services.AddScoped<IMaintenanceWindowRepository, MaintenanceWindowRepository>();
+    builder.Services.AddScoped<IMaintenanceService, MaintenanceService>();
     builder.Services.AddScoped<IAutoRecoveryService, AutoRecoveryService>();
 
     // 通知・保持(T-07)

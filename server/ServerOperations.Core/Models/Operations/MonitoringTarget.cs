@@ -26,6 +26,13 @@ public class MonitoringTarget
     /// </summary>
     public string AllowedContainersJson { get; set; } = "[]";
 
+    /// <summary>
+    /// この対象の収集間隔(秒)。nullなら全体の既定値を使う。
+    /// 短くしすぎると対象とDockerのAPIに負荷をかけるため、
+    /// 保存時に <see cref="CollectionInterval"/> の上下限で丸める。
+    /// </summary>
+    public int? CollectionIntervalSeconds { get; set; }
+
     public DateTime CreatedAt { get; set; }
 
     public DateTime UpdatedAt { get; set; }

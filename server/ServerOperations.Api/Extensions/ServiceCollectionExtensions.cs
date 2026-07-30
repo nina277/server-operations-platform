@@ -67,6 +67,13 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IIncidentRepository, IncidentRepository>();
         services.AddScoped<IIncidentLogRepository, IncidentLogRepository>();
         services.AddScoped<IIncidentService, IncidentService>();
+        services.AddScoped<IIncidentNoteRepository, IncidentNoteRepository>();
+        services.AddScoped<IIncidentNoteService, IncidentNoteService>();
+        services.AddScoped<IOperationsInsightsRepository, OperationsInsightsRepository>();
+        services.AddScoped<IOperationsInsightsService, OperationsInsightsService>();
+        services.AddScoped<IMaintenanceWindowRepository, MaintenanceWindowRepository>();
+        services.AddScoped<IMaintenanceWindowService, MaintenanceWindowService>();
+        services.AddScoped<Core.Services.IMaintenanceService, Core.Services.MaintenanceService>();
         services.AddScoped<IDashboardService, DashboardService>();
         services.AddScoped<ITelemetryService, TelemetryService>();
 
@@ -98,6 +105,8 @@ public static class ServiceCollectionExtensions
             Core.Services.Notifications.EmailNotificationSender>();
         services.AddScoped<Core.Services.Notifications.INotificationChannelSender,
             Core.Services.Notifications.PushNotificationSender>();
+        services.AddScoped<Core.Services.Notifications.INotificationTestService,
+            Core.Services.Notifications.NotificationTestService>();
         services.AddScoped<Core.Services.Notifications.INotificationService,
             Core.Services.Notifications.NotificationService>();
         services.AddScoped<Core.Services.IRetentionService, Core.Services.RetentionService>();

@@ -143,4 +143,7 @@ public class TestTimeProvider(DateTimeOffset now) : TimeProvider
     public DateTimeOffset Now { get; set; } = now;
 
     public override DateTimeOffset GetUtcNow() => Now;
+
+    /// <summary>時間を進める。期間の前後で挙動が変わることを確かめるのに使う。</summary>
+    public void Advance(TimeSpan delta) => Now = Now.Add(delta);
 }

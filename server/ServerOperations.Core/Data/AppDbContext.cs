@@ -33,6 +33,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
     public DbSet<IncidentLog> IncidentLogs => Set<IncidentLog>();
 
+    public DbSet<IncidentNote> IncidentNotes => Set<IncidentNote>();
+
+    public DbSet<MaintenanceWindow> MaintenanceWindows => Set<MaintenanceWindow>();
+
     public DbSet<DiagnosticRule> DiagnosticRules => Set<DiagnosticRule>();
 
     public DbSet<Diagnosis> Diagnoses => Set<Diagnosis>();

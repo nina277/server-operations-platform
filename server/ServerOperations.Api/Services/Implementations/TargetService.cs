@@ -111,6 +111,11 @@ public class TargetService(
         target.IsEnabled = request.IsEnabled;
         target.AutoRecoveryEnabled = request.AutoRecoveryEnabled;
         target.AllowedContainersJson = AllowedContainers.Serialize(request.AllowedContainers);
+        // 実際に使える間隔へ丸めてから保存する。丸めずに持つと、
+        // 画面に出る値と実際の動きが食い違う。
+        target.CollectionIntervalSeconds = request.CollectionIntervalSeconds is { } seconds
+            ? CollectionInterval.Normalize(seconds)
+            : null;
         target.UpdatedAt = now;
 
         if (target.Profile is null)
@@ -342,6 +347,7 @@ public class TargetService(
         IsEnabled = target.IsEnabled,
         AutoRecoveryEnabled = target.AutoRecoveryEnabled,
         AllowedContainers = AllowedContainers.Parse(target),
+        CollectionIntervalSeconds = target.CollectionIntervalSeconds,
         Settings = ReadSettings(target),
         ConfiguredCredentials = target.Credentials.Select(c => c.Kind).OrderBy(k => k).ToList(),
         CreatedAt = target.CreatedAt,

@@ -30,6 +30,8 @@ public class AuthorizationEndpointsTests(AuthorizedApiFactory factory)
         data.Add("GET", "/api/v1/settings/notification");
         data.Add("GET", "/api/v1/settings/backup-settings");
         data.Add("GET", "/api/v1/audit-logs");
+        data.Add("GET", "/api/v1/audit-logs/export");
+        data.Add("GET", "/api/v1/maintenance-windows");
         data.Add("GET", "/api/v1/audit-logs/filter-options");
         return data;
     }
@@ -40,6 +42,7 @@ public class AuthorizationEndpointsTests(AuthorizedApiFactory factory)
         "/api/v1/adapter-templates",
         "/api/v1/recovery-action-catalog",
         "/api/v1/diagnostic-rules/editor-options",
+        "/api/v1/insights/operations",
     ];
 
     // --- 未認証 ---
@@ -217,6 +220,46 @@ public class AuthorizationEndpointsTests(AuthorizedApiFactory factory)
         {
             isEnabled = true,
         });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task 閲覧者はメンテナンス期間を登録できない()
+    {
+        // 抑止の設定は自動復旧の挙動を変える操作にあたる
+        using var client = factory.CreateClientAs(UserRole.Viewer);
+
+        var response = await client.PostAsJsonAsync("/api/v1/maintenance-windows", new
+        {
+            reason = "勝手に登録した期間",
+            startsAt = DateTime.UtcNow,
+            endsAt = DateTime.UtcNow.AddHours(1),
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task 閲覧者は対応メモを書けない()
+    {
+        using var client = factory.CreateClientAs(UserRole.Viewer);
+
+        var response = await client.PostAsJsonAsync("/api/v1/incidents/1/notes", new
+        {
+            body = "勝手に書いたメモ",
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task 閲覧者はテスト通知を送れない()
+    {
+        // 送信を起こさせない(繰り返し叩かれると外部へ大量に送ることになる)
+        using var client = factory.CreateClientAs(UserRole.Viewer);
+
+        var response = await client.PostAsync("/api/v1/settings/notification/test", content: null);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }

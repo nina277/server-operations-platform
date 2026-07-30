@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using ServerOperations.Api.Tests.Fakes;
 using ServerOperations.Core.Models.Operations;
 using ServerOperations.Core.Repositories.Interfaces;
+using ServerOperations.Core.Services;
 using ServerOperations.Core.Services.Notifications;
 
 namespace ServerOperations.Api.Tests;
@@ -14,9 +15,10 @@ public class NotificationServiceTests
     private readonly FakeNotificationSettingsProvider _settings = new();
     private readonly RecordingChannel _channel = new();
     private readonly TestTimeProvider _time = new(BaseTime);
+    private readonly FakeMaintenanceService _maintenance = new();
 
     private NotificationService CreateSut(params INotificationChannelSender[] channels) => new(
-        _notifications, _settings, channels.Length == 0 ? [_channel] : channels, _time,
+        _notifications, _settings, channels.Length == 0 ? [_channel] : channels, _maintenance, _time,
         NullLogger<NotificationService>.Instance);
 
     private static NotificationRequest Request(
@@ -153,6 +155,52 @@ public class NotificationServiceTests
         Assert.NotNull(notification);
         Assert.Contains(notification.Deliveries,
             d => d.Channel == NotificationChannel.Email && d.Status == NotificationDeliveryStatus.Skipped);
+    }
+
+    // --- メンテナンス期間中の抑止 ---
+
+    [Fact]
+    public async Task メンテナンス期間中は通知しない()
+    {
+        // 計画停止中に知らせても対応するものが無く、本当の障害が埋もれる
+        _maintenance.State = new MaintenanceState
+        {
+            SuppressNotifications = true,
+            Reason = "カーネル更新",
+        };
+
+        var notification = await CreateSut().NotifyAsync(Request());
+
+        Assert.Null(notification);
+        Assert.Empty(_channel.Sent);
+    }
+
+    [Fact]
+    public async Task メンテナンス期間中でも自動復旧だけを止める設定なら通知する()
+    {
+        _maintenance.State = new MaintenanceState
+        {
+            SuppressNotifications = false,
+            SuppressAutoRecovery = true,
+            Reason = "カーネル更新",
+        };
+
+        var notification = await CreateSut().NotifyAsync(Request());
+
+        Assert.NotNull(notification);
+    }
+
+    [Fact]
+    public async Task 対象が特定できない通知は抑止の判定をしない()
+    {
+        // 対象なしの通知(システム全体の知らせ)まで止めると、
+        // メンテナンス中にシステム自身の異常を知らせられなくなる
+        _maintenance.State = new MaintenanceState { SuppressNotifications = true };
+
+        var notification = await CreateSut().NotifyAsync(Request() with { TargetId = null });
+
+        Assert.NotNull(notification);
+        Assert.Empty(_maintenance.QueriedTargetIds);
     }
 
     private sealed class RecordingChannel : INotificationChannelSender
