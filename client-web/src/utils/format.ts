@@ -101,6 +101,39 @@ export function resultTone(result: string): Tone {
 }
 
 /**
+ * 入力欄の値を数値へ変換する。空欄はnull(「その値を渡さない」)を意味する。
+ *
+ * type="number" の入力にv-modelを使うとVueが値を数値へ変換するため、
+ * 文字列と数値の両方が渡ってくる。どちらでも扱えるようにしておく。
+ */
+export function toOptionalNumber(value: string | number | null | undefined): number | null {
+  if (value === null || value === undefined || value === '') {
+    return null
+  }
+
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null
+  }
+
+  if (value.trim().length === 0) {
+    return null
+  }
+
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+/** 入力欄の値を文字列へ変換する。空欄はnull(「その値を渡さない」)を意味する。 */
+export function toOptionalText(value: string | number | null | undefined): string | null {
+  if (value === null || value === undefined) {
+    return null
+  }
+
+  const text = String(value)
+  return text.trim().length > 0 ? text : null
+}
+
+/**
  * 冪等キー。同じ操作を二度押ししても二重に実行されないようにする。
  * crypto.randomUUIDが使えない環境向けの控えも用意する。
  */

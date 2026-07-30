@@ -202,8 +202,9 @@ export default {
     rationaleTemplateHelp: '{field}, {value} and {expected} are replaced with actual values.',
     saveWarning:
       'Rules are the entry point for automatic recovery. Loosening a condition can cause unintended automatic actions, so test before saving.',
-    testSavedOnly:
-      'Testing runs against saved, enabled rules. Save first to check what you are editing.',
+    testWithEditing:
+      'What you are editing is evaluated as-is, without saving. Saved rules are evaluated too, so you can see how they interact.',
+    editingRule: 'Editing',
     test: 'Test rules',
     testDescription:
       'Enter sample collected values to see which rules would match. Nothing is saved or executed.',

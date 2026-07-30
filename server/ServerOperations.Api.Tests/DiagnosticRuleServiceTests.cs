@@ -18,7 +18,7 @@ public class DiagnosticRuleServiceTests
     private readonly TestTimeProvider _time = new(BaseTime);
 
     private DiagnosticRuleService CreateSut() =>
-        new(_rules, new RecoveryActionCatalog(), _audit, _currentUser, _time);
+        new(_rules, new RecoveryActionCatalog(), new RuleEngine(), _audit, _currentUser, _time);
 
     private static SaveDiagnosticRuleRequest Request(
         string name = "コンテナ停止",
@@ -294,6 +294,191 @@ public class DiagnosticRuleServiceTests
         var enabled = await _rules.GetEnabledAsync();
 
         Assert.Empty(enabled);
+    }
+
+    // --- 編集中のルールの試験 ---
+
+    private static CandidateRuleDto Candidate(
+        long id = 0,
+        string ruleType = "Threshold",
+        string conditionJson = """{"field":"diskUsagePercent","operator":">=","value":80}""",
+        string severity = "Medium",
+        string? recommendedActionId = null,
+        int priority = 100) => new()
+    {
+        Id = id,
+        Name = "編集中のルール",
+        Classification = "DiskPressure",
+        RuleType = ruleType,
+        ConditionJson = conditionJson,
+        Severity = severity,
+        RecommendedActionId = recommendedActionId,
+        Priority = priority,
+        RationaleTemplate = "{field} が {value} です(判定条件: {expected})。",
+    };
+
+    [Fact]
+    public async Task 保存していないルールでも判定を試せる()
+    {
+        var response = await CreateSut().TestAsync(new RuleTestRequest
+        {
+            DiskUsagePercent = 85,
+            CandidateRule = Candidate(),
+        });
+
+        var match = Assert.Single(response.Matches);
+        Assert.Equal("編集中のルール", match.RuleName);
+        Assert.True(match.IsCandidate);
+        Assert.Contains("85", match.Rationale);
+        // 試験では保存しない
+        Assert.Empty(_rules.Rules);
+    }
+
+    [Fact]
+    public async Task 当たらない入力なら仮ルールも結果に出ない()
+    {
+        var response = await CreateSut().TestAsync(new RuleTestRequest
+        {
+            DiskUsagePercent = 10,
+            CandidateRule = Candidate(),
+        });
+
+        Assert.Empty(response.Matches);
+    }
+
+    [Fact]
+    public async Task 仮ルールと保存済みルールを見分けられる()
+    {
+        var sut = CreateSut();
+        await sut.CreateAsync(Request(
+            name: "保存済み",
+            ruleType: "Threshold",
+            conditionJson: """{"field":"diskUsagePercent","operator":">=","value":50}""",
+            recommendedActionId: null));
+
+        var response = await sut.TestAsync(new RuleTestRequest
+        {
+            DiskUsagePercent = 85,
+            CandidateRule = Candidate(),
+        });
+
+        Assert.Equal(2, response.Matches.Count);
+        Assert.Single(response.Matches, m => m.RuleName == "保存済み" && !m.IsCandidate);
+        Assert.Single(response.Matches, m => m.RuleName == "編集中のルール" && m.IsCandidate);
+    }
+
+    [Fact]
+    public async Task 編集中の内容が保存済みの同じルールを置き換える()
+    {
+        var sut = CreateSut();
+        // 保存済みは90%以上で当たる
+        var saved = await sut.CreateAsync(Request(
+            name: "ディスク",
+            ruleType: "Threshold",
+            conditionJson: """{"field":"diskUsagePercent","operator":">=","value":90}""",
+            recommendedActionId: null));
+
+        // 編集中は80%以上へ緩めた状態
+        var response = await sut.TestAsync(new RuleTestRequest
+        {
+            DiskUsagePercent = 85,
+            CandidateRule = Candidate(id: saved.Id),
+        });
+
+        // 置き換えて評価するため、当たるのは編集中の1件だけ
+        var match = Assert.Single(response.Matches);
+        Assert.True(match.IsCandidate);
+        Assert.Equal(saved.Id, match.RuleId);
+    }
+
+    [Fact]
+    public async Task 無効にしたルールでも編集中の内容は試せる()
+    {
+        var sut = CreateSut();
+        var saved = await sut.CreateAsync(Request(
+            name: "止めてある",
+            ruleType: "Threshold",
+            conditionJson: """{"field":"diskUsagePercent","operator":">=","value":80}""",
+            recommendedActionId: null,
+            isEnabled: false));
+
+        var response = await sut.TestAsync(new RuleTestRequest
+        {
+            DiskUsagePercent = 85,
+            CandidateRule = Candidate(id: saved.Id),
+        });
+
+        Assert.Single(response.Matches);
+    }
+
+    [Fact]
+    public async Task 仮ルールを渡さなければ保存済みだけを評価する()
+    {
+        var sut = CreateSut();
+        await sut.CreateAsync(Request(
+            name: "保存済み",
+            ruleType: "Threshold",
+            conditionJson: """{"field":"diskUsagePercent","operator":">=","value":80}""",
+            recommendedActionId: null));
+
+        var response = await sut.TestAsync(new RuleTestRequest { DiskUsagePercent = 85 });
+
+        var match = Assert.Single(response.Matches);
+        Assert.False(match.IsCandidate);
+    }
+
+    [Theory]
+    // 保存で拒否されるものは、試験でも拒否されなければならない。
+    // 試験だけ緩いと「試験は通るが保存できない」条件が生まれ、確認の意味がなくなる。
+    [InlineData("""{"field":"apiToken","operator":">=","value":1}""", "invalid_condition")]
+    [InlineData("""{"field":"diskUsagePercent","operator":"LIKE","value":1}""", "invalid_condition")]
+    public async Task 保存できない条件は試験でも拒否する(string conditionJson, string expectedCode)
+    {
+        var ex = await Assert.ThrowsAsync<AppException>(() => CreateSut().TestAsync(
+            new RuleTestRequest { DiskUsagePercent = 85, CandidateRule = Candidate(conditionJson: conditionJson) }));
+
+        Assert.Equal(expectedCode, ex.Code);
+    }
+
+    [Fact]
+    public async Task 試験でも重い正規表現は拒否する()
+    {
+        var ex = await Assert.ThrowsAsync<AppException>(() => CreateSut().TestAsync(
+            new RuleTestRequest
+            {
+                LogExcerpt = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!",
+                CandidateRule = Candidate(
+                    ruleType: "Regex",
+                    conditionJson: """{"field":"logExcerpt","pattern":"(a+)+$"}"""),
+            }));
+
+        Assert.Equal("invalid_condition", ex.Code);
+    }
+
+    [Fact]
+    public async Task 試験でも許可リスト外の推奨アクションは拒否する()
+    {
+        var ex = await Assert.ThrowsAsync<AppException>(() => CreateSut().TestAsync(
+            new RuleTestRequest
+            {
+                DiskUsagePercent = 85,
+                CandidateRule = Candidate(recommendedActionId: "EXEC_ARBITRARY_COMMAND"),
+            }));
+
+        Assert.Equal("invalid_recommended_action", ex.Code);
+    }
+
+    [Fact]
+    public async Task 試験は監査に残さない()
+    {
+        await CreateSut().TestAsync(new RuleTestRequest
+        {
+            DiskUsagePercent = 85,
+            CandidateRule = Candidate(),
+        });
+
+        // 保存も実行もしないため、監査の対象にしない
+        Assert.Empty(_audit.Entries);
     }
 
     // --- 作ったルールが実際に判定へ効くこと ---

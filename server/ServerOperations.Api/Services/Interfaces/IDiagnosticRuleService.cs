@@ -16,5 +16,11 @@ public interface IDiagnosticRuleService
 
     Task<DiagnosticRuleDto> SetEnabledAsync(long id, bool isEnabled, CancellationToken ct = default);
 
+    /// <summary>
+    /// 判定を試す。保存も実行もしない。
+    /// 編集中のルールを渡すと、それも含めて評価する。
+    /// </summary>
+    Task<RuleTestResponse> TestAsync(RuleTestRequest request, CancellationToken ct = default);
+
     RuleEditorOptionsDto GetEditorOptions();
 }
