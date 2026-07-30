@@ -147,7 +147,8 @@ async function load(): Promise<void> {
         severity: rule.severity,
         recommendedActionId: rule.recommendedActionId ?? '',
         priority: rule.priority,
-        rationaleTemplate: '{field} が {value} です(判定条件: {expected})。',
+        // 保存済みの文言をそのまま復元する。既定値で上書きすると元の文言が失われる。
+        rationaleTemplate: rule.rationaleTemplate,
         isEnabled: rule.isEnabled,
       }
       applyConditionJson(rule.ruleType as DiagnosticRuleType, rule.conditionJson)

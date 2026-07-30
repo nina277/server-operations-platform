@@ -73,3 +73,28 @@ public record MeResponse
 
     public required bool MfaEnabled { get; init; }
 }
+
+public record ChangePasswordRequest
+{
+    /// <summary>本人確認のため、現在のパスワードを要求する。</summary>
+    [Required]
+    [MaxLength(128)]
+    public required string CurrentPassword { get; init; }
+
+    /// <summary>新しいパスワード。初期管理者と同じ12文字以上を要求する。</summary>
+    [Required]
+    [MinLength(12)]
+    [MaxLength(128)]
+    public required string NewPassword { get; init; }
+}
+
+public record ChangePasswordResponse
+{
+    public required DateTime ChangedAt { get; init; }
+
+    /// <summary>
+    /// 変更に伴って他の端末のセッションを切ったか。
+    /// 漏えい後の変更で古いセッションが残らないようにする。
+    /// </summary>
+    public required bool OtherSessionsRevoked { get; init; }
+}

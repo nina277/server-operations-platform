@@ -30,6 +30,7 @@ const navItems: NavItem[] = [
   { name: 'notifications', labelKey: 'nav.notifications' },
   { name: 'settings', labelKey: 'nav.settings', roles: ['OperatorAdmin'] },
   { name: 'audit-logs', labelKey: 'nav.auditLogs', roles: ['OperatorAdmin'] },
+  { name: 'account', labelKey: 'account.title' },
 ]
 
 // 権限のない項目は最初から見せない(押せない項目を並べても混乱を招くため)
@@ -88,10 +89,10 @@ async function handleLogout(): Promise<void> {
           </select>
         </label>
 
-        <p v-if="auth.currentUser" class="shell__user">
+        <RouterLink v-if="auth.currentUser" :to="{ name: 'account' }" class="shell__user">
           <span class="shell__user-name">{{ auth.currentUser.username }}</span>
           <span class="shell__user-role">{{ t(`role.${auth.currentUser.role}`) }}</span>
-        </p>
+        </RouterLink>
 
         <button type="button" class="shell__logout" @click="handleLogout">
           {{ t('nav.logout') }}
@@ -179,6 +180,12 @@ async function handleLogout(): Promise<void> {
   display: flex;
   flex-direction: column;
   line-height: 1.2;
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.shell__user:hover {
+  text-decoration: underline;
 }
 
 .shell__user-role {

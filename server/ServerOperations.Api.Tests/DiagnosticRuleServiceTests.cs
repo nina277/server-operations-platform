@@ -80,6 +80,59 @@ public class DiagnosticRuleServiceTests
         Assert.Single(_rules.Rules);
     }
 
+    [Fact]
+    public async Task 根拠の文言を保存して返す()
+    {
+        // 返さないと編集画面が元の文言を復元できず、保存時に失われる
+        var rule = await CreateSut().CreateAsync(Request());
+
+        Assert.Equal("コンテナ状態({field})が {value} です。", rule.RationaleTemplate);
+    }
+
+    [Fact]
+    public async Task 一覧でも根拠の文言を返す()
+    {
+        var sut = CreateSut();
+        await sut.CreateAsync(Request());
+
+        var all = await sut.GetAllAsync();
+
+        Assert.Equal("コンテナ状態({field})が {value} です。", Assert.Single(all).RationaleTemplate);
+    }
+
+    [Fact]
+    public async Task 更新で渡した根拠の文言をそのまま保持する()
+    {
+        var sut = CreateSut();
+        var created = await sut.CreateAsync(Request());
+
+        var updated = await sut.UpdateAsync(created.Id, new SaveDiagnosticRuleRequest
+        {
+            Name = created.Name,
+            Classification = created.Classification,
+            RuleType = created.RuleType,
+            ConditionJson = created.ConditionJson,
+            Severity = created.Severity,
+            RecommendedActionId = created.RecommendedActionId,
+            Priority = created.Priority,
+            RationaleTemplate = "独自の文言: {field} = {value}",
+            IsEnabled = created.IsEnabled,
+        });
+
+        Assert.Equal("独自の文言: {field} = {value}", updated.RationaleTemplate);
+    }
+
+    [Fact]
+    public void 既定のルールはそれぞれ固有の文言を持つ()
+    {
+        // 汎用の文言で上書きすると、この違いが失われる
+        var templates = DefaultDiagnosticRules.Create(DateTime.UtcNow)
+            .Select(r => r.RationaleTemplate)
+            .ToList();
+
+        Assert.Equal(templates.Count, templates.Distinct().Count());
+    }
+
     // --- 条件の検証 ---
 
     [Fact]

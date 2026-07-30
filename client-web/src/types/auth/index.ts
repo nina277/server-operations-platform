@@ -31,3 +31,14 @@ export interface MfaVerifyResult {
   mfaEnabled: boolean
   verifiedAt: string
 }
+
+export interface ChangePasswordRequest {
+  currentPassword: string
+  newPassword: string
+}
+
+export interface ChangePasswordResult {
+  changedAt: string
+  /** 他の端末のセッションを切ったか。 */
+  otherSessionsRevoked: boolean
+}

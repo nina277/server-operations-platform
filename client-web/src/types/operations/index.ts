@@ -223,6 +223,8 @@ export interface DiagnosticRule {
   severity: Severity
   recommendedActionId: string | null
   priority: number
+  /** 根拠の文言。編集時に元の値を復元するために使う。 */
+  rationaleTemplate: string
   isEnabled: boolean
 }
 

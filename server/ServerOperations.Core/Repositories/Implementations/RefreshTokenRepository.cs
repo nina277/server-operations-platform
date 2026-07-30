@@ -26,5 +26,18 @@ public class RefreshTokenRepository(AppDbContext db) : IRefreshTokenRepository
         }
     }
 
+    public async Task RevokeAllForUserAsync(
+        long userId, DateTime revokedAtUtc, CancellationToken ct = default)
+    {
+        var active = await db.RefreshTokens
+            .Where(t => t.UserId == userId && t.RevokedAt == null)
+            .ToListAsync(ct);
+
+        foreach (var token in active)
+        {
+            token.RevokedAt = revokedAtUtc;
+        }
+    }
+
     public Task SaveChangesAsync(CancellationToken ct = default) => db.SaveChangesAsync(ct);
 }

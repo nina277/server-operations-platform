@@ -32,6 +32,7 @@ const existingRule: DiagnosticRule = {
   severity: 'High',
   recommendedActionId: 'RESTART_ALLOWED_CONTAINER',
   priority: 10,
+  rationaleTemplate: 'コンテナ状態({field})が {value} です(判定条件: {expected})。',
   isEnabled: true,
 }
 
@@ -225,6 +226,27 @@ describe('RuleEditView', () => {
     )
     expect(wrapper.get('[data-testid="condition-preview"]').text()).toBe(
       '{"field":"containerState","equalsAny":["exited","dead"]}',
+    )
+  })
+
+  it('既存ルールの根拠の文言を復元する', async () => {
+    const { wrapper } = await mountView('/rules/4')
+
+    expect((wrapper.get('#rule-rationale').element as HTMLInputElement).value).toBe(
+      'コンテナ状態({field})が {value} です(判定条件: {expected})。',
+    )
+  })
+
+  it('根拠の文言を触らずに保存しても元の文言を保つ', async () => {
+    // 既定値で上書きすると、ルールごとに書き分けた文言が失われる
+    const { wrapper } = await mountView('/rules/4')
+
+    await wrapper.get('#rule-priority').setValue('5')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(nthCall(updateDiagnosticRule.mock.calls, 0)[1].rationaleTemplate).toBe(
+      'コンテナ状態({field})が {value} です(判定条件: {expected})。',
     )
   })
 

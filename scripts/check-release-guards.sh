@@ -94,6 +94,26 @@ else
   ok "EF Coreは9.x のままです。"
 fi
 
+# --- 5. 依存に既知の脆弱性が無いこと ---
+#
+# 推移的な依存で入り込むものも見る。
+# 実際には通らないコードパスであっても、依存として残さない方針。
+
+if command -v dotnet >/dev/null 2>&1; then
+  vulnerable=$(cd "${ROOT_DIR}/server" \
+    && dotnet list package --include-transitive --vulnerable 2>/dev/null \
+    | grep -E '^\s+> ' || true)
+
+  if [ -n "${vulnerable}" ]; then
+    fail "依存に既知の脆弱性があります。"
+    echo "${vulnerable}" >&2
+  else
+    ok "依存に既知の脆弱性はありません。"
+  fi
+else
+  echo "SKIP: dotnet が無いため依存の脆弱性を確認できません。" >&2
+fi
+
 echo
 if [ "${failures}" -gt 0 ]; then
   echo "${failures} 件の問題があります。リリース前に解消してください。" >&2

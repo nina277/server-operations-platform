@@ -19,6 +19,7 @@ const rules: DiagnosticRule[] = [
     severity: 'High',
     recommendedActionId: 'RESTART_ALLOWED_CONTAINER',
     priority: 10,
+    rationaleTemplate: 'コンテナ状態({field})が {value} です。',
     isEnabled: true,
   },
   {
@@ -30,6 +31,7 @@ const rules: DiagnosticRule[] = [
     severity: 'Medium',
     recommendedActionId: null,
     priority: 20,
+    rationaleTemplate: 'ディスク使用率が {value}% です。',
     isEnabled: false,
   },
 ]

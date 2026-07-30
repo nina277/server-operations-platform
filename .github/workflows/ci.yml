@@ -13,7 +13,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 禁止事項のうち機械的に確かめられるもの(latestタグ・Dockerソケット・.env・EF Coreの版)
+      # 依存の脆弱性検査に必要
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      # 禁止事項のうち機械的に確かめられるもの
+      # (latestタグ・Dockerソケット・.env・EF Coreの版・依存の脆弱性)
       - name: Check release guards
         run: ./scripts/check-release-guards.sh
 
@@ -58,6 +65,11 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      # 本番の依存に既知の脆弱性が無いこと。
+      # 開発依存は上流の修正待ちで作業が止まるため対象外とする。
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
 
       - name: Lint
         run: npm run lint

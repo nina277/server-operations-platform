@@ -89,6 +89,11 @@ const routes: RouteRecordRaw[] = [
         meta: { roles: ['OperatorAdmin'] },
       },
       {
+        path: 'account',
+        name: 'account',
+        component: () => import('@/views/auth/AccountView.vue'),
+      },
+      {
         path: 'forbidden',
         name: 'forbidden',
         component: () => import('@/views/ForbiddenView.vue'),

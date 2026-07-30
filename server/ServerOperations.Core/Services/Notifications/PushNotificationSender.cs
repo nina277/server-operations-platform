@@ -60,6 +60,11 @@ public class PushNotificationSender(
         {
             try
             {
+                // Message.Token は非推奨とされているが、代替の Fid は
+                // Firebase Installation ID を指す別概念で、ここで扱う
+                // FCMの登録トークンとは異なる。置き換えると通知が届かなくなるため、
+                // 意図してTokenを使い続ける。
+#pragma warning disable CS0618 // Type or member is obsolete
                 await messaging.SendAsync(new Message
                 {
                     Token = deviceToken.Token,
@@ -75,6 +80,7 @@ public class PushNotificationSender(
                         ["incidentId"] = notification.IncidentId?.ToString() ?? string.Empty,
                     },
                 }, ct);
+#pragma warning restore CS0618
 
                 deviceToken.ConsecutiveFailureCount = 0;
                 deviceToken.LastUsedAt = now;
@@ -118,7 +124,12 @@ public class PushNotificationSender(
         var app = FirebaseApp.GetInstance(FirebaseAppName)
             ?? FirebaseApp.Create(new AppOptions
             {
-                Credential = GoogleCredential.FromJson(serviceAccountJson),
+                // GoogleCredential.FromJson は安全上の理由で非推奨のため、
+                // CredentialFactory を経由して組み立てる
+                // Firebaseのサービスアカウント鍵は service_account 形式で固定される
+                Credential = CredentialFactory
+                    .FromJson<ServiceAccountCredential>(serviceAccountJson)
+                    .ToGoogleCredential(),
             }, FirebaseAppName);
 
         return FirebaseMessaging.GetMessaging(app);

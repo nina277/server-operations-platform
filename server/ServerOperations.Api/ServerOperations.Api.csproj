@@ -14,6 +14,12 @@
     <PackageReference Include="BCrypt.Net-Next" Version="4.2.0" />
     <PackageReference Include="Hangfire.Core" Version="1.8.23" />
     <PackageReference Include="Hangfire.MySqlStorage" Version="2.0.3" />
+    <!--
+      Hangfire.MySqlStorage が引き込む Dapper 1.50.5 は System.Data.SqlClient 4.4.0 に依存し、
+      そこに高深刻度の脆弱性がある(GHSA-98g6-xh36-x2p7)。
+      MySQL運用では読み込まれないコードだが、依存として残さないため Dapper を上げて断つ。
+    -->
+    <PackageReference Include="Dapper" Version="2.1.66" />
     <PackageReference Include="Hangfire.NetCore" Version="1.8.23" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.9" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.17">

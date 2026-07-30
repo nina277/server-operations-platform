@@ -1,6 +1,8 @@
 import http, { unwrap } from '@/api/http'
 import type { ApiResponse } from '@/types/common'
 import type {
+  ChangePasswordRequest,
+  ChangePasswordResult,
   CurrentUser,
   LoginRequest,
   MfaSetupResult,
@@ -28,4 +30,14 @@ export async function verifyMfa(totpCode: string): Promise<MfaVerifyResult> {
   return unwrap(
     await http.post<ApiResponse<MfaVerifyResult>>('/api/v1/auth/mfa/verify', { totpCode }),
   )
+}
+
+/**
+ * 自分のパスワードを変更する。
+ * 変更すると他の端末のセッションが切れる。
+ */
+export async function changePassword(
+  request: ChangePasswordRequest,
+): Promise<ChangePasswordResult> {
+  return unwrap(await http.put<ApiResponse<ChangePasswordResult>>('/api/v1/me/password', request))
 }

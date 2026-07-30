@@ -135,6 +135,49 @@ public class AuthService(
             actorUserId: stored.UserId, actorName: stored.User?.Username, ct: ct);
     }
 
+    public async Task<ChangePasswordResponse> ChangePasswordAsync(
+        long userId, ChangePasswordRequest request, CancellationToken ct = default)
+    {
+        var user = await users.FindByIdAsync(userId, ct)
+            ?? throw AppException.NotFound("user_not_found", "ユーザーが見つかりません。");
+
+        // 本人確認。現在のパスワードが違えば変更させない。
+        if (!BCrypt.Net.BCrypt.Verify(request.CurrentPassword, user.PasswordHash))
+        {
+            await audit.RecordAsync(
+                "auth.password.change", "User", userId.ToString(), AuditResult.Failure,
+                actorUserId: userId, actorName: user.Username,
+                details: "現在のパスワードが一致しません", ct: ct);
+
+            throw AppException.Unauthorized(
+                "invalid_current_password", "現在のパスワードが正しくありません。");
+        }
+
+        if (request.NewPassword == request.CurrentPassword)
+        {
+            throw AppException.BadRequest(
+                "password_unchanged", "現在と異なるパスワードを指定してください。");
+        }
+
+        var now = timeProvider.GetUtcNow().UtcDateTime;
+        user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
+        user.UpdatedAt = now;
+
+        // 漏えい後の変更で古いセッションが残らないよう、他の端末を切る。
+        // 変更した本人のアクセストークンは有効期限まで残るが、更新はできなくなる。
+        await refreshTokens.RevokeAllForUserAsync(userId, now, ct);
+        await users.SaveChangesAsync(ct);
+        await refreshTokens.SaveChangesAsync(ct);
+
+        // 監査にパスワードそのものは残さない
+        await audit.RecordAsync(
+            "auth.password.change", "User", userId.ToString(), AuditResult.Success,
+            actorUserId: userId, actorName: user.Username,
+            details: "パスワードを変更し、他の端末のセッションを失効させた", ct: ct);
+
+        return new ChangePasswordResponse { ChangedAt = now, OtherSessionsRevoked = true };
+    }
+
     public async Task<MeResponse> GetMeAsync(long userId, CancellationToken ct = default)
     {
         var user = await users.FindByIdAsync(userId, ct)
