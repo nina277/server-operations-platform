@@ -5,7 +5,9 @@ import type {
   AuditLogFilterOptions,
   AuditLogQuery,
   BackupRun,
+  BackupSettings,
   NetworkCidr,
+  NotificationSettings,
   ProfileSettings,
   RetentionPreview,
   RetentionSettings,
@@ -38,6 +40,22 @@ export async function updateRetention(settings: RetentionSettings): Promise<Rete
 /** 現在の保持設定で削除される件数の見込み。削除は行わない。 */
 export async function previewRetention(): Promise<RetentionPreview> {
   return unwrap(await http.get<ApiResponse<RetentionPreview>>('/api/v1/settings/retention/preview'))
+}
+
+// --- 通知設定 ---
+
+export async function fetchNotificationSettings(): Promise<NotificationSettings> {
+  return unwrap(
+    await http.get<ApiResponse<NotificationSettings>>('/api/v1/settings/notification'),
+  )
+}
+
+export async function updateNotificationSettings(
+  settings: NotificationSettings,
+): Promise<NotificationSettings> {
+  return unwrap(
+    await http.put<ApiResponse<NotificationSettings>>('/api/v1/settings/notification', settings),
+  )
 }
 
 // --- 接続を許可するネットワーク範囲 ---
@@ -75,6 +93,16 @@ export async function updateSecret(kind: string, value: string): Promise<SecretS
 }
 
 // --- バックアップ ---
+
+export async function fetchBackupSettings(): Promise<BackupSettings> {
+  return unwrap(await http.get<ApiResponse<BackupSettings>>('/api/v1/settings/backup-settings'))
+}
+
+export async function updateBackupSettings(settings: BackupSettings): Promise<BackupSettings> {
+  return unwrap(
+    await http.put<ApiResponse<BackupSettings>>('/api/v1/settings/backup-settings', settings),
+  )
+}
 
 export async function testBackupConnection(): Promise<ConnectionTestResult> {
   return unwrap(

@@ -166,8 +166,29 @@ LIMIT 20;
 
 1. 設定画面の秘密情報欄が「設定済み」とだけ表示し、値を出さないこと
 2. `GET /api/v1/settings/secrets/{kind}/status` の応答に値が含まれないこと
-3. 監査ログの詳細(`details`)に、パスワード・トークン・APIキーが含まれないこと
-4. アプリログに秘密値が出ないこと(`LogMasker` が伏せる)
+3. `GET /api/v1/settings/notification` の応答にSMTPパスワードが含まれないこと
+4. `GET /api/v1/settings/backup-settings` の応答にシークレットキーが含まれないこと
+5. 監査ログの詳細(`details`)に、パスワード・トークン・APIキーが含まれないこと
+6. アプリログに秘密値が出ないこと(`LogMasker` が伏せる)
+
+### 通知設定・バックアップ設定の測り方
+
+どちらも「有効なのに送れない/保存できない」状態を作れないことを確かめる。
+
+1. メール通知を有効にしたままSMTPサーバーを空で保存 → 拒否されること
+   (`smtp_host_required`)
+2. 宛先を空で保存 → 拒否されること(`email_recipients_required`)
+3. SMTPサーバーに `localhost` / `127.0.0.1` / `169.254.169.254` を保存 → 拒否されること
+   (`url_not_allowed`)
+4. SMTPサーバーに `http://smtp.example.com/path` のようなURLを保存 → 拒否されること
+   (`invalid_host`)
+5. バックアップを有効にしたまま保存先を空で保存 → 拒否されること
+   (`backup_endpoint_required`)
+6. 保存先に `http://localhost:9000` を保存 → 拒否されること(`url_not_allowed`)
+7. どちらも無効なら、設定途中の状態(保存先やSMTPサーバーが空)でも保存できること
+8. 変更が監査に残ること(`settings.notification.update` / `settings.backup.update`)
+
+1〜8は `SettingsServiceTests` で自動試験済み。実環境では実際に届くかを別に確認する。
 
 ---
 

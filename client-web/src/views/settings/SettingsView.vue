@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
@@ -9,13 +9,17 @@ import {
   addNetworkCidr,
   deleteNetworkCidr,
   fetchBackupRuns,
+  fetchBackupSettings,
   fetchNetworkCidrs,
+  fetchNotificationSettings,
   fetchProfile,
   fetchRetention,
   fetchSecretStatus,
   previewRetention,
   runBackup,
   testBackupConnection,
+  updateBackupSettings,
+  updateNotificationSettings,
   updateProfile,
   updateRetention,
   updateSecret,
@@ -25,11 +29,14 @@ import { formatBytes, formatDateTime, resultTone } from '@/utils/format'
 import type { AiUsageSummary } from '@/types/operations'
 import type {
   BackupRun,
+  BackupSettings,
   NetworkCidr,
+  NotificationSettings,
   ProfileSettings,
   RetentionPreview,
   RetentionSettings,
   SecretStatus,
+  SeverityValue,
 } from '@/types/settings'
 import type { ConnectionTestResult } from '@/types/operations'
 
@@ -46,6 +53,14 @@ const secrets = ref<SecretStatus[]>([])
 const secretDrafts = ref<Record<string, string | null>>({})
 const backupRuns = ref<BackupRun[]>([])
 const aiUsage = ref<AiUsageSummary | null>(null)
+const notification = ref<NotificationSettings | null>(null)
+const backupSettings = ref<BackupSettings | null>(null)
+
+/**
+ * 宛先は1行1件で編集する。配列を直接v-modelに結ぶと
+ * 入力途中の空行が宛先として扱われるため、テキストで保持して保存時に整える。
+ */
+const recipientsText = ref('')
 
 const newCidr = ref({ cidr: '', description: '' })
 const backupResult = ref<ConnectionTestResult | null>(null)
@@ -56,6 +71,7 @@ const message = ref<string | null>(null)
 const errorMessage = ref<string | null>(null)
 
 const retentionProfiles = ['compact', 'standard', 'long-term', 'custom'] as const
+const severities: SeverityValue[] = ['Critical', 'High', 'Medium', 'Low']
 
 async function loadAll(): Promise<void> {
   loading.value = true
@@ -69,6 +85,8 @@ async function loadAll(): Promise<void> {
     cidrResult,
     backupResult_,
     aiResult,
+    notificationResult,
+    backupSettingsResult,
     ...secretResults
   ] = await Promise.allSettled([
     fetchProfile(),
@@ -77,6 +95,8 @@ async function loadAll(): Promise<void> {
     fetchNetworkCidrs(),
     fetchBackupRuns(),
     fetchAiUsage(),
+    fetchNotificationSettings(),
+    fetchBackupSettings(),
     ...SECRET_KINDS.map((kind) => fetchSecretStatus(kind)),
   ])
 
@@ -86,6 +106,10 @@ async function loadAll(): Promise<void> {
   cidrs.value = cidrResult.status === 'fulfilled' ? cidrResult.value : []
   backupRuns.value = backupResult_.status === 'fulfilled' ? backupResult_.value : []
   aiUsage.value = aiResult.status === 'fulfilled' ? aiResult.value : null
+  notification.value = notificationResult.status === 'fulfilled' ? notificationResult.value : null
+  recipientsText.value = (notification.value?.emailRecipients ?? []).join('\n')
+  backupSettings.value =
+    backupSettingsResult.status === 'fulfilled' ? backupSettingsResult.value : null
 
   secrets.value = secretResults
     .map((result) => (result.status === 'fulfilled' ? result.value : null))
@@ -127,6 +151,33 @@ const handleSaveRetention = () =>
     if (retention.value) {
       retention.value = await updateRetention(retention.value)
       retentionPreview.value = await previewRetention()
+    }
+  })
+
+/** 空行と前後の空白を落とし、宛先として使える行だけを取り出す。 */
+const recipients = computed(() =>
+  recipientsText.value
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0),
+)
+
+const handleSaveNotification = () =>
+  run(async () => {
+    if (notification.value) {
+      const saved = await updateNotificationSettings({
+        ...notification.value,
+        emailRecipients: recipients.value,
+      })
+      notification.value = saved
+      recipientsText.value = saved.emailRecipients.join('\n')
+    }
+  })
+
+const handleSaveBackupSettings = () =>
+  run(async () => {
+    if (backupSettings.value) {
+      backupSettings.value = await updateBackupSettings(backupSettings.value)
     }
   })
 
@@ -302,6 +353,169 @@ const handleSaveAiLimits = () =>
         </template>
       </section>
 
+      <section
+        v-if="notification"
+        aria-labelledby="notification-heading"
+        class="section"
+        data-testid="notification-section"
+      >
+        <h2 id="notification-heading" class="section__title">{{ t('settings.notification') }}</h2>
+        <p class="form-field__help">{{ t('settings.notificationHelp') }}</p>
+
+        <form data-testid="notification-form" @submit.prevent="handleSaveNotification">
+          <div class="grid">
+            <div class="form-field">
+              <label for="notify-severity">{{ t('settings.minimumSeverity') }}</label>
+              <select
+                id="notify-severity"
+                v-model="notification.minimumSeverity"
+                aria-describedby="notify-severity-help"
+              >
+                <option v-for="value in severities" :key="value" :value="value">
+                  {{ t(`severity.${value.toLowerCase()}`) }}
+                </option>
+              </select>
+              <p id="notify-severity-help" class="form-field__help">
+                {{ t('settings.minimumSeverityHelp') }}
+              </p>
+            </div>
+
+            <div class="form-field">
+              <label for="notify-renotify">{{ t('settings.renotifyIntervalMinutes') }}</label>
+              <input
+                id="notify-renotify"
+                v-model.number="notification.renotifyIntervalMinutes"
+                type="number"
+                min="1"
+                max="10080"
+                aria-describedby="notify-renotify-help"
+              />
+              <p id="notify-renotify-help" class="form-field__help">
+                {{ t('settings.renotifyIntervalHelp') }}
+              </p>
+            </div>
+          </div>
+
+          <div class="form-field form-field--inline">
+            <input
+              id="notify-email-enabled"
+              v-model="notification.emailEnabled"
+              type="checkbox"
+              data-testid="email-enabled"
+            />
+            <label for="notify-email-enabled">{{ t('settings.emailEnabled') }}</label>
+          </div>
+
+          <div class="form-field">
+            <label for="notify-recipients">{{ t('settings.emailRecipients') }}</label>
+            <textarea
+              id="notify-recipients"
+              v-model="recipientsText"
+              rows="3"
+              :required="notification.emailEnabled"
+              aria-describedby="notify-recipients-help"
+            ></textarea>
+            <p id="notify-recipients-help" class="form-field__help">
+              {{ t('settings.emailRecipientsHelp') }}
+            </p>
+          </div>
+
+          <div class="grid">
+            <div class="form-field">
+              <label for="notify-smtp-host">{{ t('settings.smtpHost') }}</label>
+              <input
+                id="notify-smtp-host"
+                v-model="notification.smtpHost"
+                type="text"
+                maxlength="255"
+                :required="notification.emailEnabled"
+                aria-describedby="notify-smtp-host-help"
+              />
+              <p id="notify-smtp-host-help" class="form-field__help">
+                {{ t('settings.smtpHostHelp') }}
+              </p>
+            </div>
+
+            <div class="form-field">
+              <label for="notify-smtp-port">{{ t('settings.smtpPort') }}</label>
+              <input
+                id="notify-smtp-port"
+                v-model.number="notification.smtpPort"
+                type="number"
+                min="1"
+                max="65535"
+              />
+            </div>
+
+            <div class="form-field">
+              <label for="notify-smtp-username">{{ t('settings.smtpUsername') }}</label>
+              <input
+                id="notify-smtp-username"
+                v-model="notification.smtpUsername"
+                type="text"
+                autocomplete="off"
+                maxlength="255"
+              />
+            </div>
+
+            <div class="form-field">
+              <label for="notify-smtp-from">{{ t('settings.smtpFromAddress') }}</label>
+              <input
+                id="notify-smtp-from"
+                v-model="notification.smtpFromAddress"
+                type="email"
+                maxlength="255"
+                :required="notification.emailEnabled"
+              />
+            </div>
+          </div>
+
+          <div class="form-field form-field--inline">
+            <input
+              id="notify-starttls"
+              v-model="notification.smtpUseStartTls"
+              type="checkbox"
+              data-testid="smtp-starttls"
+            />
+            <label for="notify-starttls">{{ t('settings.smtpUseStartTls') }}</label>
+          </div>
+
+          <div class="form-field form-field--inline">
+            <input
+              id="notify-push-enabled"
+              v-model="notification.pushEnabled"
+              type="checkbox"
+              data-testid="push-enabled"
+            />
+            <label for="notify-push-enabled">{{ t('settings.pushEnabled') }}</label>
+          </div>
+
+          <div class="form-field">
+            <label for="notify-push-threshold">{{ t('settings.pushFailureThreshold') }}</label>
+            <input
+              id="notify-push-threshold"
+              v-model.number="notification.pushFailureThreshold"
+              type="number"
+              min="1"
+              max="100"
+              aria-describedby="notify-push-threshold-help"
+            />
+            <p id="notify-push-threshold-help" class="form-field__help">
+              {{ t('settings.pushFailureThresholdHelp') }}
+            </p>
+          </div>
+
+          <button
+            type="submit"
+            class="button button--primary"
+            :disabled="busy"
+            data-testid="save-notification"
+          >
+            {{ t('common.save') }}
+          </button>
+        </form>
+      </section>
+
       <section aria-labelledby="cidrs-heading" class="section">
         <h2 id="cidrs-heading" class="section__title">{{ t('settings.networkCidrs') }}</h2>
         <p class="form-field__help">{{ t('settings.networkCidrsHelp') }}</p>
@@ -379,6 +593,84 @@ const handleSaveAiLimits = () =>
 
       <section aria-labelledby="backup-heading" class="section">
         <h2 id="backup-heading" class="section__title">{{ t('settings.backup') }}</h2>
+
+        <form
+          v-if="backupSettings"
+          data-testid="backup-settings-form"
+          @submit.prevent="handleSaveBackupSettings"
+        >
+          <h3 class="section__subtitle">{{ t('settings.backupSettings') }}</h3>
+
+          <div class="form-field form-field--inline">
+            <input
+              id="backup-enabled"
+              v-model="backupSettings.enabled"
+              type="checkbox"
+              data-testid="backup-enabled"
+            />
+            <label for="backup-enabled">{{ t('settings.backupEnabled') }}</label>
+          </div>
+
+          <div class="form-field">
+            <label for="backup-endpoint">{{ t('settings.backupEndpoint') }}</label>
+            <input
+              id="backup-endpoint"
+              v-model="backupSettings.endpoint"
+              type="url"
+              maxlength="255"
+              :required="backupSettings.enabled"
+              aria-describedby="backup-endpoint-help"
+            />
+            <p id="backup-endpoint-help" class="form-field__help">
+              {{ t('settings.backupEndpointHelp') }}
+            </p>
+          </div>
+
+          <div class="grid">
+            <div class="form-field">
+              <label for="backup-bucket">{{ t('settings.bucketName') }}</label>
+              <input
+                id="backup-bucket"
+                v-model="backupSettings.bucketName"
+                type="text"
+                maxlength="100"
+                :required="backupSettings.enabled"
+              />
+            </div>
+            <div class="form-field">
+              <label for="backup-prefix">{{ t('settings.prefix') }}</label>
+              <input id="backup-prefix" v-model="backupSettings.prefix" type="text" maxlength="100" />
+            </div>
+            <div class="form-field">
+              <label for="backup-region">{{ t('settings.region') }}</label>
+              <input id="backup-region" v-model="backupSettings.region" type="text" maxlength="50" />
+            </div>
+            <div class="form-field">
+              <label for="backup-generations">{{ t('settings.keepGenerations') }}</label>
+              <input
+                id="backup-generations"
+                v-model.number="backupSettings.keepGenerations"
+                type="number"
+                min="1"
+                max="365"
+              />
+            </div>
+          </div>
+
+          <div class="form-field form-field--inline">
+            <input id="backup-path-style" v-model="backupSettings.usePathStyle" type="checkbox" />
+            <label for="backup-path-style">{{ t('settings.usePathStyle') }}</label>
+          </div>
+
+          <button
+            type="submit"
+            class="button button--primary"
+            :disabled="busy"
+            data-testid="save-backup-settings"
+          >
+            {{ t('common.save') }}
+          </button>
+        </form>
 
         <div class="inline-form">
           <button type="button" class="button" :disabled="busy" @click="handleTestBackup">

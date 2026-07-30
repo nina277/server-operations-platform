@@ -27,6 +27,8 @@ public class AuthorizationEndpointsTests(AuthorizedApiFactory factory)
         data.Add("GET", "/api/v1/settings/network-cidrs");
         data.Add("GET", "/api/v1/settings/secrets/smtp-password/status");
         data.Add("GET", "/api/v1/settings/backup/runs");
+        data.Add("GET", "/api/v1/settings/notification");
+        data.Add("GET", "/api/v1/settings/backup-settings");
         data.Add("GET", "/api/v1/audit-logs");
         data.Add("GET", "/api/v1/audit-logs/filter-options");
         return data;
