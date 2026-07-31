@@ -6,16 +6,19 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import AsyncState from '@/components/common/AsyncState.vue'
 import PaginationControls from '@/components/common/PaginationControls.vue'
-import { searchIncidents } from '@/api/operations'
+import { fetchTargets, searchIncidents } from '@/api/operations'
 import { useAsyncData } from '@/composables/useAsyncData'
 import { formatDateTime, incidentStatusTone, severityTone } from '@/utils/format'
-import type { IncidentStatus, Severity } from '@/types/operations'
+import type { IncidentStatus, Severity, Target } from '@/types/operations'
 
 const { t, locale } = useI18n()
 
 const search = ref('')
 const severity = ref<Severity | ''>('')
 const status = ref<IncidentStatus | ''>('')
+/** 空文字は「対象で絞らない」。数値へ変換すると0になり別物になる。 */
+const targetId = ref<string>('')
+const targets = ref<Target[]>([])
 const page = ref(1)
 
 const severities: Severity[] = ['Critical', 'High', 'Medium', 'Low']
@@ -30,15 +33,25 @@ const { data, loading, error, forbidden, load } = useAsyncData(() => {
     search: search.value.length > 0 ? search.value : undefined,
     severity: selectedSeverity === '' ? undefined : selectedSeverity,
     status: selectedStatus === '' ? undefined : selectedStatus,
+    targetId: targetId.value === '' ? undefined : Number(targetId.value),
     page: page.value,
     pageSize: 20,
   })
 }, t('common.error'))
 
-onMounted(load)
+onMounted(async () => {
+  await load()
+
+  // 対象一覧が取れなくてもインシデントは見られるようにする
+  try {
+    targets.value = await fetchTargets()
+  } catch {
+    targets.value = []
+  }
+})
 
 // 絞り込みを変えたら1ページ目から見せる
-watch([search, severity, status], () => {
+watch([search, severity, status, targetId], () => {
   page.value = 1
 })
 
@@ -72,6 +85,16 @@ function handleSubmit(): void {
           <option value="">{{ t('incidents.allSeverities') }}</option>
           <option v-for="value in severities" :key="value" :value="value">
             {{ t(`severity.${value.toLowerCase()}`) }}
+          </option>
+        </select>
+      </div>
+
+      <div class="form-field">
+        <label for="incident-target">{{ t('incidents.target') }}</label>
+        <select id="incident-target" v-model="targetId" data-testid="filter-target">
+          <option value="">{{ t('incidents.allTargets') }}</option>
+          <option v-for="target in targets" :key="target.id" :value="String(target.id)">
+            {{ target.name }}
           </option>
         </select>
       </div>

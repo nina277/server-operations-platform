@@ -13,7 +13,8 @@ public interface INotificationRepository
     Task<Notification?> FindByIdAsync(long id, CancellationToken ct = default);
 
     Task<(List<Notification> Items, long TotalCount)> SearchAsync(
-        bool? isRead, int page, int pageSize, CancellationToken ct = default);
+        bool? isRead, NotificationSeverity? minimumSeverity, int page, int pageSize,
+        CancellationToken ct = default);
 
     Task<int> CountUnreadAsync(CancellationToken ct = default);
 

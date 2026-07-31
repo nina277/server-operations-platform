@@ -236,6 +236,19 @@ export interface DashboardSummary {
    * これが無いと「障害が無い」と「監視が死んでいる」が区別できない。
    */
   unreachedTargets: TargetMonitoringHealth[]
+  /** 対象ごとの直近の状態。件数の集計だけではどの対象がつらいのか分からない。 */
+  targetStates: TargetState[]
+}
+
+export interface TargetState {
+  targetId: number
+  targetName: string
+  isEnabled: boolean
+  reach: MonitoringReach
+  activeIncidents: number
+  /** 未解決のうち最も高い重大度。0件ならnull。 */
+  highestSeverity: string | null
+  lastCollectedAt: string | null
 }
 
 export interface DiagnosticRule {
@@ -485,4 +498,19 @@ export interface NotificationTestResult {
   /** 設定が無く送らなかった場合はtrue。失敗とは区別する。 */
   skipped: boolean
   message: string | null
+}
+
+/** 監視対象を削除したときに一緒に消えるものの件数。 */
+export interface TargetDeletePreview {
+  targetId: number
+  targetName: string
+  metricSnapshots: number
+  incidents: number
+  incidentLogs: number
+  diagnoses: number
+  recoveryActions: number
+  healthChecks: number
+  notifications: number
+  maintenanceWindows: number
+  total: number
 }

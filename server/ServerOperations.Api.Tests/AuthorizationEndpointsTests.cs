@@ -32,6 +32,8 @@ public class AuthorizationEndpointsTests(AuthorizedApiFactory factory)
         data.Add("GET", "/api/v1/audit-logs");
         data.Add("GET", "/api/v1/audit-logs/export");
         data.Add("GET", "/api/v1/maintenance-windows");
+        data.Add("GET", "/api/v1/users");
+        data.Add("GET", "/api/v1/targets/1/delete-preview");
         data.Add("GET", "/api/v1/audit-logs/filter-options");
         return data;
     }
@@ -260,6 +262,56 @@ public class AuthorizationEndpointsTests(AuthorizedApiFactory factory)
         using var client = factory.CreateClientAs(UserRole.Viewer);
 
         var response = await client.PostAsync("/api/v1/settings/notification/test", content: null);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task 閲覧者は利用者を追加できない()
+    {
+        // 役割の割り当ては権限そのものを動かす操作
+        using var client = factory.CreateClientAs(UserRole.Viewer);
+
+        var response = await client.PostAsJsonAsync("/api/v1/users", new
+        {
+            username = "sneaky",
+            password = "initial-password-1",
+            role = "OperatorAdmin",
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task 閲覧者は役割を変えられない()
+    {
+        using var client = factory.CreateClientAs(UserRole.Viewer);
+
+        var response = await client.PatchAsJsonAsync("/api/v1/users/1/role", new
+        {
+            role = "OperatorAdmin",
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task 閲覧者は他人のMFAをリセットできない()
+    {
+        // リセットはそれ自体が乗っ取りの経路になりうる
+        using var client = factory.CreateClientAs(UserRole.Viewer);
+
+        var response = await client.PostAsync("/api/v1/users/2/mfa/reset", content: null);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task 閲覧者は監視対象を削除できない()
+    {
+        using var client = factory.CreateClientAs(UserRole.Viewer);
+
+        var response = await client.DeleteAsync("/api/v1/targets/1");
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }

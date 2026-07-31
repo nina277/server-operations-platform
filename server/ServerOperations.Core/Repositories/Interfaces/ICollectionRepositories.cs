@@ -52,6 +52,13 @@ public interface IIncidentRepository
 
     Task<Dictionary<IncidentSeverity, int>> CountActiveBySeverityAsync(CancellationToken ct = default);
 
+    /// <summary>
+    /// 対象ごとの未解決インシデント件数と、最も高い重大度。
+    /// ダッシュボードで「どの対象が今つらいのか」を出すのに使う。
+    /// </summary>
+    Task<Dictionary<long, (int Count, IncidentSeverity Highest)>> CountActiveByTargetAsync(
+        CancellationToken ct = default);
+
     Task AddAsync(Incident incident, CancellationToken ct = default);
 
     Task SaveChangesAsync(CancellationToken ct = default);

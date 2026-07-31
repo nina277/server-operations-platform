@@ -45,6 +45,23 @@ public class IncidentRepository(AppDbContext db) : IIncidentRepository
             .OrderByDescending(i => i.LastOccurredAt)
             .FirstOrDefaultAsync(ct);
 
+    public async Task<Dictionary<long, (int Count, IncidentSeverity Highest)>>
+        CountActiveByTargetAsync(CancellationToken ct = default)
+    {
+        var rows = await db.Incidents
+            .Where(i => i.Status != IncidentStatus.Closed && i.Status != IncidentStatus.Resolved)
+            .GroupBy(i => i.TargetId)
+            .Select(g => new
+            {
+                TargetId = g.Key,
+                Count = g.Count(),
+                Highest = g.Max(i => i.Severity),
+            })
+            .ToListAsync(ct);
+
+        return rows.ToDictionary(r => r.TargetId, r => (r.Count, r.Highest));
+    }
+
     public async Task<(List<Incident> Items, long TotalCount)> SearchAsync(
         IncidentSearchCriteria criteria, CancellationToken ct = default)
     {

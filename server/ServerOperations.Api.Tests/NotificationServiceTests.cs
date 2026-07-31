@@ -246,9 +246,15 @@ public class FakeNotificationRepository : INotificationRepository
         Task.FromResult(Notifications.FirstOrDefault(n => n.Id == id));
 
     public Task<(List<Notification> Items, long TotalCount)> SearchAsync(
-        bool? isRead, int page, int pageSize, CancellationToken ct = default)
+        bool? isRead, NotificationSeverity? minimumSeverity, int page, int pageSize,
+        CancellationToken ct = default)
     {
         var query = Notifications.AsEnumerable();
+        if (minimumSeverity is { } severity)
+        {
+            query = query.Where(n => n.Severity >= severity);
+        }
+
         if (isRead is { } read)
         {
             query = query.Where(n => n.IsRead == read);

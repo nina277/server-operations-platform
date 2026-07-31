@@ -81,6 +81,28 @@ public class TargetsController(
         return Ok(ApiResponse<TargetDto>.Ok(result, TraceId()));
     }
 
+    /// <summary>削除で一緒に消えるものの件数。削除はしない。</summary>
+    [HttpGet("{id:long}/delete-preview")]
+    [Authorize(Policy = AuthorizationPolicies.AdminWithRecentMfa)]
+    public async Task<ActionResult<ApiResponse<TargetDeletePreviewDto>>> PreviewDelete(
+        long id, CancellationToken ct)
+    {
+        var result = await targetService.PreviewDeleteAsync(id, ct);
+        return Ok(ApiResponse<TargetDeletePreviewDto>.Ok(result, TraceId()));
+    }
+
+    /// <summary>
+    /// 監視対象を削除する。収集値・インシデント・復旧履歴も一緒に消える。
+    /// 監査ログは残る(誰が何をしたかの記録は消さない)。
+    /// </summary>
+    [HttpDelete("{id:long}")]
+    [Authorize(Policy = AuthorizationPolicies.AdminWithRecentMfa)]
+    public async Task<ActionResult<ApiResponse<object?>>> Delete(long id, CancellationToken ct)
+    {
+        await targetService.DeleteAsync(id, ct);
+        return Ok(ApiResponse<object?>.Ok(null, TraceId()));
+    }
+
     [HttpPost("{id:long}/test-connection")]
     [Authorize(Policy = AuthorizationPolicies.AdminWithRecentMfa)]
     public async Task<ActionResult<ApiResponse<ConnectionTestResultDto>>> TestConnection(

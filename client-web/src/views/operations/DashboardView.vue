@@ -44,6 +44,9 @@ const statusCounts = computed(() =>
  */
 const unreachedTargets = computed(() => data.value?.unreachedTargets ?? [])
 
+/** 対象ごとの状態。手当てが要るものから順に並んでサーバーから返る。 */
+const targetStates = computed(() => data.value?.targetStates ?? [])
+
 /** 経過時間を読みやすい単位にする。秒のままだと大きい値が頭に入らない。 */
 function formatElapsed(seconds: number | null): string {
   if (seconds === null) {
@@ -139,6 +142,68 @@ function formatElapsed(seconds: number | null): string {
           <p v-else class="muted">{{ t('common.empty') }}</p>
         </section>
 
+        <section
+          v-if="targetStates.length > 0"
+          aria-labelledby="states-heading"
+          class="section states"
+          data-testid="target-states"
+        >
+          <h2 id="states-heading" class="section__title">{{ t('dashboard.targetStates') }}</h2>
+          <p class="form-field__help">{{ t('dashboard.targetStatesHelp') }}</p>
+
+          <div class="table-scroll">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th scope="col">{{ t('incidents.target') }}</th>
+                  <th scope="col">{{ t('dashboard.reach') }}</th>
+                  <th scope="col">{{ t('dashboard.activeIncidents') }}</th>
+                  <th scope="col">{{ t('monitoringHealth.lastCollectedAt') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="state in targetStates" :key="state.targetId">
+                  <th scope="row">
+                    <RouterLink :to="{ name: 'target-detail', params: { id: state.targetId } }">
+                      {{ state.targetName }}
+                    </RouterLink>
+                    <StatusBadge
+                      v-if="!state.isEnabled"
+                      tone="medium"
+                      :label="t('dashboard.notMonitored')"
+                    />
+                  </th>
+                  <td>
+                    <StatusBadge
+                      :tone="state.reach === 'Reaching' ? 'low' : 'critical'"
+                      :label="
+                        state.reach === 'Reaching'
+                          ? t('dashboard.reaching')
+                          : state.reach === 'Stale'
+                            ? t('monitoringHealth.stale')
+                            : t('monitoringHealth.neverCollected')
+                      "
+                    />
+                  </td>
+                  <td>
+                    <StatusBadge
+                      v-if="state.highestSeverity"
+                      :tone="severityTone(state.highestSeverity)"
+                      :label="`${t(`severity.${state.highestSeverity.toLowerCase()}`)}: ${state.activeIncidents}`"
+                    />
+                    <span v-else class="muted">0</span>
+                  </td>
+                  <td>
+                    {{
+                      state.lastCollectedAt ? formatDateTime(state.lastCollectedAt, locale) : '—'
+                    }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
         <section aria-labelledby="recent-heading" class="section">
           <h2 id="recent-heading" class="section__title">{{ t('dashboard.recentIncidents') }}</h2>
 
@@ -184,6 +249,10 @@ function formatElapsed(seconds: number | null): string {
 </template>
 
 <style scoped>
+.states {
+  margin-top: var(--spacing-lg);
+}
+
 /* 監視が届いていないことは他の集計より重い知らせなので、明確に区切って出す */
 .alert {
   padding: var(--spacing-md);

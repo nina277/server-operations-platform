@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { AxiosError, AxiosHeaders, type InternalAxiosRequestConfig } from 'axios'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, type Router } from 'vue-router'
@@ -10,6 +11,7 @@ import type {
   AdapterTemplate,
   MetricSnapshot,
   Target,
+  TargetDeletePreview,
   UpdateTargetRequest,
 } from '@/types/operations'
 import type { CurrentUser } from '@/types/auth'
@@ -64,6 +66,8 @@ const admin: CurrentUser = { id: 1, username: 'admin', role: 'OperatorAdmin', mf
 const updateTarget = vi.fn<(id: number, request: UpdateTargetRequest) => Promise<Target>>()
 
 const fetchTarget = vi.fn<() => Promise<Target>>()
+const previewDeleteTarget = vi.fn<() => Promise<TargetDeletePreview>>()
+const deleteTarget = vi.fn<(id: number) => Promise<void>>()
 const fetchTargetMetrics = vi.fn<() => Promise<MetricSnapshot[]>>()
 
 vi.mock('@/api/operations', () => ({
@@ -79,6 +83,8 @@ vi.mock('@/api/operations', () => ({
     }),
   fetchAdapterTemplates: () => Promise.resolve([template]),
   fetchTargetMetrics: () => fetchTargetMetrics(),
+  previewDeleteTarget: () => previewDeleteTarget(),
+  deleteTarget: (id: number) => deleteTarget(id),
   fetchTargetLogs: () => Promise.resolve([]),
   updateTarget: (id: number, request: UpdateTargetRequest) => updateTarget(id, request),
   testTargetConnection: vi.fn<() => Promise<never>>(),
@@ -101,6 +107,19 @@ function createTestRouter(): Router {
   })
 }
 
+function apiError(code: string, message: string): AxiosError {
+  const config = { headers: new AxiosHeaders() } as InternalAxiosRequestConfig
+  const error = new AxiosError(message, 'ERR_BAD_REQUEST', config)
+  error.response = {
+    data: { success: false, data: null, error: { code, message }, traceId: null },
+    status: 400,
+    statusText: 'Error',
+    headers: new AxiosHeaders(),
+    config,
+  }
+  return error
+}
+
 async function mountView() {
   const router = createTestRouter()
   await router.push('/targets/3')
@@ -121,6 +140,20 @@ describe('TargetDetailView', () => {
     setActivePinia(createPinia())
     fetchTarget.mockResolvedValue(target)
     fetchTargetMetrics.mockResolvedValue([])
+    previewDeleteTarget.mockResolvedValue({
+      targetId: 3,
+      targetName: 'home-docker',
+      metricSnapshots: 120,
+      incidents: 3,
+      incidentLogs: 40,
+      diagnoses: 3,
+      recoveryActions: 2,
+      healthChecks: 5,
+      notifications: 1,
+      maintenanceWindows: 0,
+      total: 174,
+    })
+    deleteTarget.mockResolvedValue()
     updateTarget.mockResolvedValue(target)
 
     const { useAuthStore } = await import('@/stores/auth')
@@ -317,5 +350,64 @@ describe('TargetDetailView', () => {
     const wrapper = await mountView()
 
     expect(wrapper.find('svg').exists()).toBe(false)
+  })
+
+  // --- 削除 ---
+
+  it('削除で何が消えるかを先に見せる', async () => {
+    // 削除は元に戻せないため、確認してから決められるようにする
+    const wrapper = await mountView()
+
+    await wrapper.get('[data-testid="preview-delete"]').trigger('click')
+    await flushPromises()
+
+    const preview = wrapper.get('[data-testid="delete-preview"]')
+    expect(preview.text()).toContain('120')
+    expect(preview.text()).toContain('3')
+  })
+
+  it('確認を挟むまで削除しない', async () => {
+    const wrapper = await mountView()
+
+    expect(wrapper.find('[data-testid="confirm-delete"]').exists()).toBe(false)
+    expect(deleteTarget).not.toHaveBeenCalled()
+  })
+
+  it('確認後に削除できる', async () => {
+    const wrapper = await mountView()
+
+    await wrapper.get('[data-testid="preview-delete"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="confirm-delete"]').trigger('click')
+    await flushPromises()
+
+    expect(deleteTarget).toHaveBeenCalledWith(3)
+  })
+
+  it('監査ログは消えないことを伝える', async () => {
+    const wrapper = await mountView()
+
+    await wrapper.get('[data-testid="preview-delete"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="delete-preview"]').text()).toContain(
+      '監査ログは削除されません',
+    )
+  })
+
+  it('監視中で削除できない場合は理由を出す', async () => {
+    deleteTarget.mockRejectedValue(
+      apiError('target_still_enabled', '監視中の対象は削除できません。'),
+    )
+
+    const wrapper = await mountView()
+    await wrapper.get('[data-testid="preview-delete"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="confirm-delete"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="delete-section"]').text()).toContain(
+      '監視中の対象は削除できません。',
+    )
   })
 })

@@ -31,6 +31,7 @@ const navItems: NavItem[] = [
   { name: 'notifications', labelKey: 'nav.notifications' },
   { name: 'maintenance', labelKey: 'nav.maintenance', roles: ['OperatorAdmin'] },
   { name: 'settings', labelKey: 'nav.settings', roles: ['OperatorAdmin'] },
+  { name: 'users', labelKey: 'nav.users', roles: ['OperatorAdmin'] },
   { name: 'audit-logs', labelKey: 'nav.auditLogs', roles: ['OperatorAdmin'] },
   { name: 'account', labelKey: 'account.title' },
 ]

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
@@ -17,6 +17,8 @@ import {
   runHealthCheck,
   testTargetConnection,
   updateTarget,
+  previewDeleteTarget,
+  deleteTarget,
 } from '@/api/operations'
 import { useAsyncData } from '@/composables/useAsyncData'
 import { useAuthStore } from '@/stores/auth'
@@ -28,10 +30,12 @@ import type {
   IncidentLog,
   MetricSnapshot,
   Target,
+  TargetDeletePreview,
 } from '@/types/operations'
 
 const { t, locale } = useI18n()
 const route = useRoute()
+const router = useRouter()
 const auth = useAuthStore()
 
 const targetId = computed(() => Number(route.params.id))
@@ -58,6 +62,12 @@ const draft = ref<{
   settings: Record<string, string>
   credentials: Record<string, string | null>
 } | null>(null)
+
+// --- 削除 ---
+// 削除は元に戻せない。何が消えるかを見てから決められるようにする。
+const deletePreview = ref<TargetDeletePreview | null>(null)
+const deleting = ref(false)
+const deleteError = ref<string | null>(null)
 
 const saving = ref(false)
 const saveMessage = ref<string | null>(null)
@@ -120,6 +130,33 @@ const stoppedContainerPoints = computed(() =>
 )
 
 /** テンプレートのうち秘密でない入力。値は設定画面で編集できる。 */
+async function handlePreviewDelete(): Promise<void> {
+  deleting.value = true
+  deleteError.value = null
+
+  try {
+    deletePreview.value = await previewDeleteTarget(targetId.value)
+  } catch (e) {
+    deleteError.value = extractErrorMessage(e, t('common.error'))
+  } finally {
+    deleting.value = false
+  }
+}
+
+async function handleDelete(): Promise<void> {
+  deleting.value = true
+  deleteError.value = null
+
+  try {
+    await deleteTarget(targetId.value)
+    await router.push({ name: 'targets' })
+  } catch (e) {
+    deleteError.value = extractErrorMessage(e, t('common.error'))
+  } finally {
+    deleting.value = false
+  }
+}
+
 const plainInputs = computed(() => template.value?.inputs.filter((i) => !i.secret) ?? [])
 const secretInputs = computed(() => template.value?.inputs.filter((i) => i.secret) ?? [])
 
@@ -449,6 +486,61 @@ async function handleHealthCheck(): Promise<void> {
             </table>
           </div>
           <p v-else class="muted">{{ t('common.empty') }}</p>
+        </section>
+
+        <section
+          v-if="auth.isAdmin"
+          aria-labelledby="delete-heading"
+          class="section section--danger"
+          data-testid="delete-section"
+        >
+          <h2 id="delete-heading" class="section__title">{{ t('targets.delete') }}</h2>
+          <p class="form-field__help">{{ t('targets.deleteHelp') }}</p>
+
+          <p v-if="deleteError" role="alert" class="message message--error">{{ deleteError }}</p>
+
+          <button
+            v-if="deletePreview === null"
+            type="button"
+            class="button"
+            :disabled="deleting"
+            data-testid="preview-delete"
+            @click="handlePreviewDelete"
+          >
+            {{ t('targets.deletePreview') }}
+          </button>
+
+          <div v-else data-testid="delete-preview">
+            <p>{{ t('targets.deleteConfirm', { name: deletePreview.targetName }) }}</p>
+
+            <dl class="definition">
+              <dt>{{ t('nav.incidents') }}</dt>
+              <dd>{{ deletePreview.incidents }}</dd>
+              <dt>{{ t('targets.metrics') }}</dt>
+              <dd>{{ deletePreview.metricSnapshots }}</dd>
+              <dt>{{ t('incidents.recoveryActions') }}</dt>
+              <dd>{{ deletePreview.recoveryActions }}</dd>
+              <dt>{{ t('nav.notifications') }}</dt>
+              <dd>{{ deletePreview.notifications }}</dd>
+            </dl>
+
+            <p class="form-field__help">{{ t('targets.deleteAuditNote') }}</p>
+
+            <div class="inline-form">
+              <button
+                type="button"
+                class="button button--danger"
+                :disabled="deleting"
+                data-testid="confirm-delete"
+                @click="handleDelete"
+              >
+                {{ t('targets.deleteExecute') }}
+              </button>
+              <button type="button" class="button" @click="deletePreview = null">
+                {{ t('common.cancel') }}
+              </button>
+            </div>
+          </div>
         </section>
 
         <section aria-labelledby="logs-heading" class="section">

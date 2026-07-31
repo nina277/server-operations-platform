@@ -24,6 +24,8 @@ import type {
   MetricSnapshot,
   OperationsInsights,
   Recurrence,
+  Severity,
+  TargetDeletePreview,
   RecoveryAction,
   RecoveryActionDefinition,
   RediagnoseResult,
@@ -237,10 +239,12 @@ export async function searchNotifications(
   isRead: boolean | undefined,
   page: number,
   pageSize: number,
+  /** この重大度以上だけを返す。設定側の下限指定と考え方を揃える。 */
+  minimumSeverity?: Severity,
 ): Promise<PagedResult<AppNotification>> {
   return unwrap(
     await http.get<ApiResponse<PagedResult<AppNotification>>>('/api/v1/notifications', {
-      params: { isRead, page, pageSize },
+      params: { isRead, page, pageSize, minimumSeverity },
     }),
   )
 }
@@ -343,4 +347,16 @@ export async function cancelMaintenanceWindow(id: number): Promise<MaintenanceWi
   return unwrap(
     await http.post<ApiResponse<MaintenanceWindow>>(`/api/v1/maintenance-windows/${id}/cancel`),
   )
+}
+
+// --- 監視対象の削除 ---
+
+export async function previewDeleteTarget(id: number): Promise<TargetDeletePreview> {
+  return unwrap(
+    await http.get<ApiResponse<TargetDeletePreview>>(`/api/v1/targets/${id}/delete-preview`),
+  )
+}
+
+export async function deleteTarget(id: number): Promise<void> {
+  await http.delete(`/api/v1/targets/${id}`)
 }

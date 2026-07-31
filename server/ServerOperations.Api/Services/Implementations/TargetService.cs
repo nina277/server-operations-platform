@@ -185,6 +185,58 @@ public class TargetService(
         };
     }
 
+    public async Task<TargetDeletePreviewDto> PreviewDeleteAsync(
+        long id, CancellationToken ct = default)
+    {
+        var target = await targets.FindByIdAsync(id, ct)
+            ?? throw AppException.NotFound("target_not_found", "監視対象が見つかりません。");
+
+        var counts = await targets.CountDependentsAsync(id, ct);
+
+        return new TargetDeletePreviewDto
+        {
+            TargetId = target.Id,
+            TargetName = target.Name,
+            MetricSnapshots = counts.MetricSnapshots,
+            Incidents = counts.Incidents,
+            IncidentLogs = counts.IncidentLogs,
+            Diagnoses = counts.Diagnoses,
+            RecoveryActions = counts.RecoveryActions,
+            HealthChecks = counts.HealthChecks,
+            Notifications = counts.Notifications,
+            MaintenanceWindows = counts.MaintenanceWindows,
+            Total = counts.Total,
+        };
+    }
+
+    public async Task DeleteAsync(long id, CancellationToken ct = default)
+    {
+        var target = await targets.FindByIdAsync(id, ct)
+            ?? throw AppException.NotFound("target_not_found", "監視対象が見つかりません。");
+
+        // 監視中の対象を誤って消さない。止めてから消す手順にする。
+        if (target.IsEnabled)
+        {
+            throw AppException.BadRequest(
+                "target_still_enabled",
+                "監視中の対象は削除できません。先に「監視する」を外してください。");
+        }
+
+        var counts = await targets.CountDependentsAsync(id, ct);
+
+        // 何が消えたかを監査に残す。削除後は本体から辿れなくなるため、
+        // 件数だけでもここに残しておく。
+        await audit.RecordAsync(
+            "target.delete", "MonitoringTarget", target.Id.ToString(), AuditResult.Success,
+            currentUser.UserId, currentUser.Username,
+            $"name={target.Name} template={target.TemplateId} "
+                + $"incidents={counts.Incidents} metrics={counts.MetricSnapshots} "
+                + $"recoveryActions={counts.RecoveryActions} total={counts.Total}",
+            ct);
+
+        await targets.DeleteWithDependentsAsync(target, ct);
+    }
+
     public async Task<ConnectionTestResultDto> TestConnectionAsync(long id, CancellationToken ct = default)
     {
         var target = await FindOrThrowAsync(id, ct);

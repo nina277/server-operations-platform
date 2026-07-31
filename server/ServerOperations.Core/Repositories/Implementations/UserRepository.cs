@@ -17,6 +17,14 @@ public class UserRepository(AppDbContext db) : IUserRepository
 
     public Task<bool> AnyAsync(CancellationToken ct = default) => db.Users.AnyAsync(ct);
 
+    public Task<List<User>> GetAllAsync(CancellationToken ct = default) =>
+        db.Users.Include(u => u.MfaCredential)
+            .OrderBy(u => u.Username)
+            .ToListAsync(ct);
+
+    public Task<int> CountActiveAdminsAsync(CancellationToken ct = default) =>
+        db.Users.CountAsync(u => u.IsActive && u.Role == UserRole.OperatorAdmin, ct);
+
     public async Task AddAsync(User user, CancellationToken ct = default) =>
         await db.Users.AddAsync(user, ct);
 

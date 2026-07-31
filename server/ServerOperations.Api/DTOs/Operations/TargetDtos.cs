@@ -135,3 +135,32 @@ public record TargetCapabilitiesDto
 
     public required IReadOnlyList<string> InitialRules { get; init; }
 }
+
+/// <summary>
+/// 監視対象を削除したときに一緒に消えるものの件数。
+/// 削除は元に戻せないため、何が消えるかを先に示す。
+/// </summary>
+public record TargetDeletePreviewDto
+{
+    public required long TargetId { get; init; }
+
+    public required string TargetName { get; init; }
+
+    public required int MetricSnapshots { get; init; }
+
+    public required int Incidents { get; init; }
+
+    public required int IncidentLogs { get; init; }
+
+    public required int Diagnoses { get; init; }
+
+    public required int RecoveryActions { get; init; }
+
+    public required int HealthChecks { get; init; }
+
+    public required int Notifications { get; init; }
+
+    public required int MaintenanceWindows { get; init; }
+
+    public required int Total { get; init; }
+}

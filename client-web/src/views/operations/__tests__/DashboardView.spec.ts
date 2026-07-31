@@ -14,6 +14,7 @@ const summary: DashboardSummary = {
   incidentsByStatus: {},
   recentIncidents: [],
   unreachedTargets: [],
+  targetStates: [],
 }
 
 const fetchDashboardSummary = vi.fn<() => Promise<DashboardSummary>>()
@@ -166,5 +167,79 @@ describe('DashboardView の自己監視', () => {
 
     const link = wrapper.get('[data-testid="unreached-targets"]').get('a')
     expect(link.attributes('href')).toBe('/targets/5')
+  })
+
+  // --- 対象ごとの状態(B-07) ---
+
+  it('対象ごとの状態を出す', async () => {
+    // 件数の集計だけでは、どの対象がつらいのかが分からない
+    fetchDashboardSummary.mockResolvedValue({
+      ...summary,
+      targetStates: [
+        {
+          targetId: 1,
+          targetName: 'docker1',
+          isEnabled: true,
+          reach: 'Reaching',
+          activeIncidents: 2,
+          highestSeverity: 'High',
+          lastCollectedAt: '2026-07-10T12:00:00Z',
+        },
+      ],
+    })
+
+    const wrapper = await mountView()
+
+    const states = wrapper.get('[data-testid="target-states"]')
+    expect(states.text()).toContain('docker1')
+    expect(states.text()).toContain('2')
+  })
+
+  it('監視していない対象はその旨を示す', async () => {
+    fetchDashboardSummary.mockResolvedValue({
+      ...summary,
+      targetStates: [
+        {
+          targetId: 2,
+          targetName: 'paused',
+          isEnabled: false,
+          reach: 'Reaching',
+          activeIncidents: 0,
+          highestSeverity: null,
+          lastCollectedAt: null,
+        },
+      ],
+    })
+
+    const wrapper = await mountView()
+
+    expect(wrapper.get('[data-testid="target-states"]').text()).toContain('監視していない')
+  })
+
+  it('未解決が無い対象は0として出す', async () => {
+    fetchDashboardSummary.mockResolvedValue({
+      ...summary,
+      targetStates: [
+        {
+          targetId: 1,
+          targetName: 'healthy',
+          isEnabled: true,
+          reach: 'Reaching',
+          activeIncidents: 0,
+          highestSeverity: null,
+          lastCollectedAt: '2026-07-10T12:00:00Z',
+        },
+      ],
+    })
+
+    const wrapper = await mountView()
+
+    expect(wrapper.get('[data-testid="target-states"]').text()).toContain('0')
+  })
+
+  it('対象が無ければ表を出さない', async () => {
+    const wrapper = await mountView()
+
+    expect(wrapper.find('[data-testid="target-states"]').exists()).toBe(false)
   })
 })

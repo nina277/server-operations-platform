@@ -3,6 +3,8 @@ using ServerOperations.Core.Adapters.Implementations;
 using ServerOperations.Api.DTOs.Operations;
 using ServerOperations.Api.Services.Implementations;
 using ServerOperations.Api.Tests.Fakes;
+using ServerOperations.Core.Models.Operations;
+using ServerOperations.Core.Repositories.Interfaces;
 
 namespace ServerOperations.Api.Tests;
 
@@ -225,5 +227,123 @@ public class TargetServiceTests
         }));
 
         Assert.Equal("duplicate_target_name", ex.Code);
+    }
+
+    // --- 削除 ---
+
+    private MonitoringTarget AddTarget(bool isEnabled = false) =>
+        _repo.Targets[_repo.Targets.Count - 1];
+
+    [Fact]
+    public async Task 削除で消えるものの件数を先に示す()
+    {
+        // 削除は元に戻せないため、何が消えるかを見てから決められるようにする
+        var sut = CreateSut();
+        var created = await sut.CreateAsync(new CreateTargetRequest
+        {
+            Name = "t1",
+            TemplateId = "docker-host",
+            Settings = new() { ["endpoint"] = "http://192.168.1.20:2375" },
+        });
+
+        _repo.Dependents = new TargetDependents
+        {
+            MetricSnapshots = 120,
+            Incidents = 3,
+            IncidentLogs = 40,
+            Diagnoses = 3,
+            RecoveryActions = 2,
+            HealthChecks = 5,
+            Notifications = 1,
+            MaintenanceWindows = 0,
+        };
+
+        var preview = await sut.PreviewDeleteAsync(created.Id);
+
+        Assert.Equal(120, preview.MetricSnapshots);
+        Assert.Equal(3, preview.Incidents);
+        Assert.Equal(174, preview.Total);
+    }
+
+    [Fact]
+    public async Task 監視中の対象は削除できない()
+    {
+        // 動いているものを誤って消さない。止めてから消す手順にする。
+        var sut = CreateSut();
+        var created = await sut.CreateAsync(new CreateTargetRequest
+        {
+            Name = "t1",
+            TemplateId = "docker-host",
+            Settings = new() { ["endpoint"] = "http://192.168.1.20:2375" },
+        });
+
+        var ex = await Assert.ThrowsAsync<AppException>(() => sut.DeleteAsync(created.Id));
+
+        Assert.Equal("target_still_enabled", ex.Code);
+    }
+
+    [Fact]
+    public async Task 監視を止めてあれば削除できる()
+    {
+        var sut = CreateSut();
+        var created = await sut.CreateAsync(new CreateTargetRequest
+        {
+            Name = "t1",
+            TemplateId = "docker-host",
+            Settings = new() { ["endpoint"] = "http://192.168.1.20:2375" },
+        });
+        AddTarget().IsEnabled = false;
+
+        await sut.DeleteAsync(created.Id);
+
+        Assert.DoesNotContain(_repo.Targets, t => t.Id == created.Id);
+    }
+
+    [Fact]
+    public async Task 削除で消えた件数を監査に残す()
+    {
+        // 削除後は本体から辿れなくなるため、件数だけでも記録に残す
+        var sut = CreateSut();
+        var created = await sut.CreateAsync(new CreateTargetRequest
+        {
+            Name = "t1",
+            TemplateId = "docker-host",
+            Settings = new() { ["endpoint"] = "http://192.168.1.20:2375" },
+        });
+        AddTarget().IsEnabled = false;
+        _repo.Dependents = _repo.Dependents with { Incidents = 7 };
+
+        await sut.DeleteAsync(created.Id);
+
+        var entry = Assert.Single(_audit.Entries, e => e.Action == "target.delete");
+        Assert.Contains("incidents=7", entry.Details ?? string.Empty);
+        Assert.Contains("name=t1", entry.Details ?? string.Empty);
+    }
+
+    [Fact]
+    public async Task 存在しない対象は削除できない()
+    {
+        var ex = await Assert.ThrowsAsync<AppException>(() => CreateSut().DeleteAsync(999));
+
+        Assert.Equal("target_not_found", ex.Code);
+    }
+
+    [Fact]
+    public async Task 削除しても監査ログは消さない()
+    {
+        // 誰が何をしたかの記録は、対象が消えても残す必要がある
+        var sut = CreateSut();
+        var created = await sut.CreateAsync(new CreateTargetRequest
+        {
+            Name = "t1",
+            TemplateId = "docker-host",
+            Settings = new() { ["endpoint"] = "http://192.168.1.20:2375" },
+        });
+        AddTarget().IsEnabled = false;
+        var beforeCount = _audit.Entries.Count;
+
+        await sut.DeleteAsync(created.Id);
+
+        Assert.True(_audit.Entries.Count > beforeCount);
     }
 }

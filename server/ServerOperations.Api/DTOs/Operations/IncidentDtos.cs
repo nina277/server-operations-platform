@@ -88,6 +88,30 @@ public record DashboardSummaryDto
     /// これが無いと「障害が無い」と「監視が死んでいる」が区別できない。
     /// </summary>
     public required List<TargetMonitoringHealthDto> UnreachedTargets { get; init; }
+
+    /// <summary>
+    /// 対象ごとの直近の状態。件数の集計だけでは、どの対象がつらいのかが分からない。
+    /// </summary>
+    public required List<TargetStateDto> TargetStates { get; init; }
+}
+
+public record TargetStateDto
+{
+    public required long TargetId { get; init; }
+
+    public required string TargetName { get; init; }
+
+    public required bool IsEnabled { get; init; }
+
+    /// <summary>監視が届いているか(Reaching / NeverCollected / Stale)。</summary>
+    public required string Reach { get; init; }
+
+    public required int ActiveIncidents { get; init; }
+
+    /// <summary>未解決インシデントのうち最も高い重大度。0件ならnull。</summary>
+    public string? HighestSeverity { get; init; }
+
+    public DateTime? LastCollectedAt { get; init; }
 }
 
 /// <summary>監視が届いているかの状態。</summary>

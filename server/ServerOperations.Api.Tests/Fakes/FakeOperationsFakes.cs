@@ -24,6 +24,31 @@ public class FakeMonitoringTargetRepository : IMonitoringTargetRepository
         return Task.CompletedTask;
     }
 
+    /// <summary>削除で消えるものの件数。既定では0(必要なテストが値を入れる)。</summary>
+    public TargetDependents Dependents { get; set; } = new()
+    {
+        MetricSnapshots = 0,
+        Incidents = 0,
+        IncidentLogs = 0,
+        Diagnoses = 0,
+        RecoveryActions = 0,
+        HealthChecks = 0,
+        Notifications = 0,
+        MaintenanceWindows = 0,
+    };
+
+    public List<MonitoringTarget> Deleted { get; } = [];
+
+    public Task<TargetDependents> CountDependentsAsync(long targetId, CancellationToken ct = default) =>
+        Task.FromResult(Dependents);
+
+    public Task DeleteWithDependentsAsync(MonitoringTarget target, CancellationToken ct = default)
+    {
+        Targets.Remove(target);
+        Deleted.Add(target);
+        return Task.CompletedTask;
+    }
+
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
 }
 
