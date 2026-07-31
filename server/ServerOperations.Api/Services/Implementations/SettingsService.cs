@@ -61,8 +61,20 @@ public class SettingsService(
     public Task<RetentionSettingsDto> GetRetentionAsync(CancellationToken ct = default) =>
         GetAsync(SettingCategory.Retention, DefaultRetention, ct);
 
-    public Task<RetentionSettingsDto> UpdateRetentionAsync(RetentionSettingsDto request, CancellationToken ct = default) =>
-        UpdateAsync(SettingCategory.Retention, DefaultRetention, request, "settings.retention.update", ct);
+    public Task<RetentionSettingsDto> UpdateRetentionAsync(RetentionSettingsDto request, CancellationToken ct = default)
+    {
+        // 監査ログの保持は下限を割らせない。
+        // 画面からの入力はDTOの検証で先に弾かれるが、そこを通らない経路
+        // (直接の呼び出し・将来の別の入口)からも下回らせないため、書き込む側でも守る。
+        var guarded = request with
+        {
+            AuditDays = Math.Max(
+                request.AuditDays, ServerOperations.Core.Services.RetentionPolicy.MinAuditDays),
+        };
+
+        return UpdateAsync(
+            SettingCategory.Retention, DefaultRetention, guarded, "settings.retention.update", ct);
+    }
 
     public Task<NotificationSettingsDto> GetNotificationAsync(CancellationToken ct = default) =>
         GetAsync(SettingCategory.Notification, DefaultNotification, ct);

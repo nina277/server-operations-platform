@@ -2,6 +2,14 @@
 # 既存システムとは独立したComposeプロジェクトとして運用する。
 name: server-operations
 
+# Dockerの既定(json-file)は上限が無く、放っておくとディスクを埋める。
+# ディスク使用率を監視するシステム自身がディスクを埋めては話にならない。
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   nginx:
     image: nginx:1.27-alpine
@@ -14,6 +22,14 @@ services:
     depends_on:
       - web
       - api
+    logging: *default-logging
+    mem_limit: 128m
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost/api/health/live"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     networks:
       - frontend
 
@@ -29,6 +45,14 @@ services:
         VITE_FIREBASE_APP_ID: ${VITE_FIREBASE_APP_ID:-}
         VITE_FIREBASE_VAPID_KEY: ${VITE_FIREBASE_VAPID_KEY:-}
     restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 128m
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     # 外部ポートは公開しない(nginx経由でのみアクセスする)
     networks:
       - frontend
@@ -50,6 +74,17 @@ services:
     volumes:
       # Data Protection鍵(MFAシークレット暗号化)をコンテナ再作成後も保持する
       - api-keys:/app/keys
+    logging: *default-logging
+    mem_limit: 512m
+    # livenessを見る。restart: unless-stopped はプロセスが死んだときしか効かず、
+    # 生きているが応答しない状態は検知できないため。
+    # readinessではなくlivenessを使う。DBが落ちただけで再起動しても直らない。
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/api/health/live"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     # 外部ポートは公開しない(nginx経由でのみアクセスする)
     depends_on:
       mysql:
@@ -72,6 +107,19 @@ services:
     volumes:
       # APIと同じData Protection鍵を共有する(APIが暗号化した対象資格情報の復号に必要)
       - api-keys:/app/keys
+    logging: *default-logging
+    mem_limit: 512m
+    # Workerはweb口を持たないため、生存を示すファイルの古さで見る。
+    # Workerが1分ごとに更新し、3分以上古ければ止まっているとみなす。
+    # 収集が実際に回っているかは画面側の自己監視(ダッシュボード)で見る。
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - test $(( $(date +%s) - $(stat -c %Y /tmp/worker-alive) )) -lt 180
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
     # 外部ポートは公開しない
     depends_on:
       mysql:
@@ -96,6 +144,8 @@ services:
       - --collation-server=utf8mb4_0900_ai_ci
     volumes:
       - mysql-data:/var/lib/mysql
+    logging: *default-logging
+    mem_limit: 1g
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$$MYSQL_ROOT_PASSWORD"]
       interval: 10s

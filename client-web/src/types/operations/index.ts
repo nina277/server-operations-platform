@@ -213,12 +213,29 @@ export interface HealthCheck {
   checkedAt: string
 }
 
+export type MonitoringReach = 'Reaching' | 'NeverCollected' | 'Stale'
+
+/** 監視が届いているかの状態。 */
+export interface TargetMonitoringHealth {
+  targetId: number
+  targetName: string
+  reach: MonitoringReach
+  lastCollectedAt: string | null
+  expectedIntervalSeconds: number
+  staleForSeconds: number | null
+}
+
 export interface DashboardSummary {
   targetCount: number
   enabledTargetCount: number
   activeIncidentsBySeverity: Record<string, number>
   incidentsByStatus: Record<string, number>
   recentIncidents: Incident[]
+  /**
+   * 収集が届いていない監視対象。
+   * これが無いと「障害が無い」と「監視が死んでいる」が区別できない。
+   */
+  unreachedTargets: TargetMonitoringHealth[]
 }
 
 export interface DiagnosticRule {

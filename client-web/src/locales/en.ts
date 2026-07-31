@@ -378,6 +378,17 @@ export default {
     page: 'Page {page} of {totalPages}',
   },
 
+  monitoringHealth: {
+    title: 'Some targets are not being collected',
+    description:
+      'Collection has stopped for these targets. Zero incidents does not mean everything is fine. Check that the worker is running and that the targets are reachable.',
+    stale: 'Collection has stopped',
+    neverCollected: 'Never collected',
+    lastCollectedAt: 'Last collected',
+    seconds: '{n}s ago',
+    minutes: '{n}m ago',
+    hours: '{n}h ago',
+  },
   chart: {
     summary: '{count} points / latest {latest} / range {min}–{max}',
   },

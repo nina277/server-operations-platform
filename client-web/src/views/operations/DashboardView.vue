@@ -36,6 +36,28 @@ const severityCounts = computed(() =>
 const statusCounts = computed(() =>
   Object.entries(data.value?.incidentsByStatus ?? {}).map(([status, count]) => ({ status, count })),
 )
+
+/**
+ * 収集が届いていない対象。
+ * インシデント0件は「異常が無い」とは限らない。監視が止まっていても0件になる。
+ * その区別が付くよう、他の集計より先に、目立つ形で出す。
+ */
+const unreachedTargets = computed(() => data.value?.unreachedTargets ?? [])
+
+/** 経過時間を読みやすい単位にする。秒のままだと大きい値が頭に入らない。 */
+function formatElapsed(seconds: number | null): string {
+  if (seconds === null) {
+    return '—'
+  }
+
+  if (seconds < 60) {
+    return t('monitoringHealth.seconds', { n: seconds })
+  }
+  if (seconds < 3600) {
+    return t('monitoringHealth.minutes', { n: Math.floor(seconds / 60) })
+  }
+  return t('monitoringHealth.hours', { n: Math.floor(seconds / 3600) })
+}
 </script>
 
 <template>
@@ -50,6 +72,39 @@ const statusCounts = computed(() =>
       @retry="load"
     >
       <template v-if="data">
+        <section
+          v-if="unreachedTargets.length > 0"
+          aria-labelledby="unreached-heading"
+          class="alert"
+          data-testid="unreached-targets"
+        >
+          <h2 id="unreached-heading" class="alert__title">
+            {{ t('monitoringHealth.title') }}
+          </h2>
+          <p class="alert__note">{{ t('monitoringHealth.description') }}</p>
+
+          <ul class="alert__list">
+            <li v-for="item in unreachedTargets" :key="item.targetId">
+              <StatusBadge
+                tone="critical"
+                :label="
+                  item.reach === 'NeverCollected'
+                    ? t('monitoringHealth.neverCollected')
+                    : t('monitoringHealth.stale')
+                "
+              />
+              <RouterLink :to="{ name: 'target-detail', params: { id: item.targetId } }">
+                {{ item.targetName }}
+              </RouterLink>
+              <span v-if="item.lastCollectedAt">
+                {{ t('monitoringHealth.lastCollectedAt') }}:
+                {{ formatDateTime(item.lastCollectedAt, locale) }}
+                ({{ formatElapsed(item.staleForSeconds) }})
+              </span>
+            </li>
+          </ul>
+        </section>
+
         <dl class="metrics">
           <MetricValue :label="t('dashboard.targetCount')" :value="data.targetCount" />
           <MetricValue
@@ -129,6 +184,41 @@ const statusCounts = computed(() =>
 </template>
 
 <style scoped>
+/* 監視が届いていないことは他の集計より重い知らせなので、明確に区切って出す */
+.alert {
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-lg);
+  border: 1px solid var(--color-critical);
+  border-radius: var(--radius);
+  background-color: var(--color-critical-bg);
+}
+
+.alert__title {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  color: var(--color-critical);
+  margin-bottom: var(--spacing-xs);
+}
+
+.alert__note {
+  font-size: 0.875rem;
+  margin-bottom: var(--spacing-sm);
+}
+
+.alert__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.alert__list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-xs);
+}
+
 .metrics {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));

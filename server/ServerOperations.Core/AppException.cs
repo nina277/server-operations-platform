@@ -24,4 +24,7 @@ public class AppException(int statusCode, string code, string message) : Excepti
 
     public static AppException Conflict(string code, string message) =>
         new(StatusCodes.Status409Conflict, code, message);
+
+    public static AppException TooManyRequests(string code, string message) =>
+        new(StatusCodes.Status429TooManyRequests, code, message);
 }

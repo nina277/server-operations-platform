@@ -376,6 +376,17 @@ export default {
     page: '{page} / {totalPages} ページ',
   },
 
+  monitoringHealth: {
+    title: '監視が届いていない対象があります',
+    description:
+      'これらの対象は収集が止まっています。インシデントが0件でも、異常が無いとは限りません。Workerが動いているか、対象へ到達できるかを確認してください。',
+    stale: '収集が途絶えています',
+    neverCollected: '一度も収集されていません',
+    lastCollectedAt: '最終収集',
+    seconds: '{n}秒前',
+    minutes: '{n}分前',
+    hours: '{n}時間前',
+  },
   chart: {
     summary: '{count}件 / 最新 {latest} / 範囲 {min}〜{max}',
   },

@@ -2,6 +2,7 @@ using ServerOperations.Api.DTOs.Settings;
 using ServerOperations.Core.Models.Auth;
 using ServerOperations.Api.Services.Implementations;
 using ServerOperations.Api.Tests.Fakes;
+using ServerOperations.Core.Services;
 
 namespace ServerOperations.Api.Tests;
 
@@ -307,5 +308,49 @@ public class SettingsServiceTests
             Backup(enabled: false, endpoint: null, bucket: null));
 
         Assert.False(saved.Enabled);
+    }
+
+    // --- 監査ログの保持下限 ---
+
+    [Fact]
+    public async Task 監査ログの保持を下限より短くできない()
+    {
+        // 管理者権限を取られたとき、保持期間を縮めて痕跡を消せてはならない
+        var saved = await CreateSut().UpdateRetentionAsync(new RetentionSettingsDto
+        {
+            Profile = "custom",
+            MetricsDays = 7,
+            LogsDays = 7,
+            IncidentsDays = 30,
+            AuditDays = 1,
+        });
+
+        Assert.Equal(RetentionPolicy.MinAuditDays, saved.AuditDays);
+    }
+
+    [Fact]
+    public void 保持方針を組み立てる時点でも下限を割らない()
+    {
+        // DTOの検証を通らない経路(既定値・移行など)からも下回らせない
+        var policy = new RetentionPolicy(7, 7, 30, AuditDays: 1);
+
+        Assert.Equal(RetentionPolicy.MinAuditDays, policy.AuditDays);
+    }
+
+    [Fact]
+    public void 下限以上の指定はそのまま使う()
+    {
+        var policy = new RetentionPolicy(7, 7, 30, AuditDays: 365);
+
+        Assert.Equal(365, policy.AuditDays);
+    }
+
+    [Fact]
+    public void どの保持プロファイルも下限を割らない()
+    {
+        foreach (var name in new[] { "compact", "standard", "long-term" })
+        {
+            Assert.True(RetentionPolicy.FromProfile(name).AuditDays >= RetentionPolicy.MinAuditDays);
+        }
     }
 }

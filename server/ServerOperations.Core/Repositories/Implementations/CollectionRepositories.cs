@@ -17,6 +17,17 @@ public class MetricSnapshotRepository(AppDbContext db) : IMetricSnapshotReposito
             .Take(limit)
             .ToListAsync(ct);
 
+    public async Task<Dictionary<long, DateTime>> GetLatestCollectedAtByTargetAsync(
+        CancellationToken ct = default)
+    {
+        var rows = await db.MetricSnapshots
+            .GroupBy(m => m.TargetId)
+            .Select(g => new { TargetId = g.Key, LatestAt = g.Max(m => m.CollectedAt) })
+            .ToListAsync(ct);
+
+        return rows.ToDictionary(r => r.TargetId, r => r.LatestAt);
+    }
+
     public Task SaveChangesAsync(CancellationToken ct = default) => db.SaveChangesAsync(ct);
 }
 

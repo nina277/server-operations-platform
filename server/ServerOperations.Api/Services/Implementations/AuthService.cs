@@ -3,6 +3,7 @@ using ServerOperations.Api.DTOs.Auth;
 using ServerOperations.Api.Extensions;
 using ServerOperations.Core.Models.Auth;
 using ServerOperations.Core.Repositories.Interfaces;
+using ServerOperations.Core.Services;
 using ServerOperations.Api.Services.Interfaces;
 
 namespace ServerOperations.Api.Services.Implementations;
@@ -14,6 +15,7 @@ public class AuthService(
     IMfaService mfaService,
     IAuditService audit,
     IOptions<JwtOptions> jwtOptions,
+    ILoginThrottle loginThrottle,
     TimeProvider timeProvider,
     IHttpContextAccessor httpContextAccessor) : IAuthService
 {
@@ -21,11 +23,32 @@ public class AuthService(
 
     public async Task<TokenPairResponse> LoginAsync(LoginRequest request, CancellationToken ct = default)
     {
+        var ip = httpContextAccessor.HttpContext?.Connection.RemoteIpAddress?.ToString();
+
+        // 総当たりを実用的でない速さまで落とす。
+        // 判定は認証情報を見る前に行う。見てから止めると、
+        // 止まるまでの時間の差で利用者名の存在を推測できてしまう。
+        var decision = loginThrottle.Check(request.Username, ip);
+        if (!decision.Allowed)
+        {
+            await audit.RecordAsync(
+                "auth.login.throttled", "User", null, AuditResult.Denied,
+                actorName: request.Username,
+                details: $"retryAfterSeconds={(int)decision.RetryAfter.TotalSeconds}", ct: ct);
+
+            throw AppException.TooManyRequests(
+                "too_many_attempts",
+                "ログインの試行が続いたため、しばらく受け付けません。時間をおいて試してください。");
+        }
+
         var user = await users.FindByUsernameAsync(request.Username, ct);
 
         // ユーザー不存在とパスワード不一致は同じ応答にする(ユーザー列挙を防ぐ)
         if (user is null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
         {
+            // 存在しない利用者名でも数える。数えないと、止まるかどうかで存在が分かる。
+            loginThrottle.RecordFailure(request.Username, ip);
+
             await audit.RecordAsync(
                 "auth.login", "User", user?.Id.ToString(), AuditResult.Failure,
                 actorUserId: user?.Id, actorName: request.Username,
@@ -35,6 +58,8 @@ public class AuthService(
 
         if (!user.IsActive)
         {
+            loginThrottle.RecordFailure(request.Username, ip);
+
             await audit.RecordAsync(
                 "auth.login", "User", user.Id.ToString(), AuditResult.Denied,
                 actorUserId: user.Id, actorName: user.Username, details: "inactive user", ct: ct);
@@ -45,11 +70,16 @@ public class AuthService(
         {
             if (string.IsNullOrWhiteSpace(request.TotpCode))
             {
+                // コード未入力は入力の続きであり、失敗として数えない。
+                // 数えると、正しいパスワードを持つ本人が入力の途中で締め出される。
                 throw AppException.Unauthorized("mfa_required", "MFAの認証コードを入力してください。");
             }
 
             if (!await mfaService.ValidateForLoginAsync(user.Id, request.TotpCode, ct))
             {
+                // 6桁のコードは総当たりが現実的なため、ここも必ず数える
+                loginThrottle.RecordFailure(request.Username, ip);
+
                 await audit.RecordAsync(
                     "auth.login", "User", user.Id.ToString(), AuditResult.Failure,
                     actorUserId: user.Id, actorName: user.Username, details: "invalid TOTP code", ct: ct);
@@ -58,6 +88,7 @@ public class AuthService(
         }
 
         var pair = await IssueTokenPairAsync(user, familyId: Guid.NewGuid(), ct);
+        loginThrottle.RecordSuccess(request.Username, ip);
 
         await audit.RecordAsync(
             "auth.login", "User", user.Id.ToString(), AuditResult.Success,

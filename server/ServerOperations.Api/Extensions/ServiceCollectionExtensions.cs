@@ -53,6 +53,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IMfaService, MfaService>();
         services.AddScoped<IAuditService, AuditService>();
         services.AddScoped<IAuditLogQueryService, AuditLogQueryService>();
+        // 試行の記録はプロセス内に持つため、単一のインスタンスを共有する
+        services.AddSingleton<Core.Services.ILoginThrottle, Core.Services.LoginThrottle>();
         services.AddScoped<IDiagnosticRuleService, DiagnosticRuleService>();
         services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
         services.AddScoped<ISettingsService, SettingsService>();
@@ -75,6 +77,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IMaintenanceWindowService, MaintenanceWindowService>();
         services.AddScoped<Core.Services.IMaintenanceService, Core.Services.MaintenanceService>();
         services.AddScoped<IDashboardService, DashboardService>();
+        services.AddScoped<Core.Services.IMonitoringHealthService, Core.Services.MonitoringHealthService>();
         services.AddScoped<ITelemetryService, TelemetryService>();
 
         services.AddScoped<IDiagnosticRuleRepository, DiagnosticRuleRepository>();

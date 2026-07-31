@@ -33,7 +33,12 @@ public record RetentionSettingsDto
     [Range(1, 3650)]
     public int IncidentsDays { get; init; } = 365;
 
-    [Range(1, 3650)]
+    /// <summary>
+    /// 監査ログの保持日数。下限があるのは、痕跡を消すために
+    /// 保持期間を縮める操作を成立させないため。
+    /// </summary>
+    [Range(ServerOperations.Core.Services.RetentionPolicy.MinAuditDays, 3650,
+        ErrorMessage = "監査ログの保持は90日以上にしてください。改ざんの証跡が短期間で消えるためです。")]
     public int AuditDays { get; init; } = 365;
 }
 

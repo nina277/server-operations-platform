@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using ServerOperations.Api.DTOs.Common;
 using ServerOperations.Api.Extensions;
+using ServerOperations.Api.HealthChecks;
 using ServerOperations.Api.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -38,8 +39,12 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
     options.KnownProxies.Clear();
 });
 
+// live はプロセスが応答できるかだけを見る。DBが落ちただけで
+// プロセスを再起動させても直らないため、依存を混ぜない。
+// ready は依存を含めて「受付できるか」を見るため、DB接続を確かめる。
 builder.Services.AddHealthChecks()
-    .AddCheck("self", () => HealthCheckResult.Healthy(), tags: ["live", "ready"]);
+    .AddCheck("self", () => HealthCheckResult.Healthy(), tags: ["live", "ready"])
+    .AddCheck<DatabaseHealthCheck>("database", tags: ["ready"]);
 
 var app = builder.Build();
 

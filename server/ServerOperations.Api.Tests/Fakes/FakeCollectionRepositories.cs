@@ -21,6 +21,12 @@ public class FakeMetricSnapshotRepository : IMetricSnapshotRepository
             .Take(limit)
             .ToList());
 
+    public Task<Dictionary<long, DateTime>> GetLatestCollectedAtByTargetAsync(
+        CancellationToken ct = default) =>
+        Task.FromResult(Snapshots
+            .GroupBy(m => m.TargetId)
+            .ToDictionary(g => g.Key, g => g.Max(m => m.CollectedAt)));
+
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
 }
 

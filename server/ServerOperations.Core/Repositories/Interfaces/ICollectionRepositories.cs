@@ -9,6 +9,13 @@ public interface IMetricSnapshotRepository
     Task<List<MetricSnapshot>> GetRecentAsync(
         long targetId, int limit, CancellationToken ct = default);
 
+    /// <summary>
+    /// 対象ごとの最終収集時刻。自己監視で「収集が届いているか」を見るのに使う。
+    /// 収集の記録そのものを生存の証跡として使うため、別の心拍は持たない。
+    /// </summary>
+    Task<Dictionary<long, DateTime>> GetLatestCollectedAtByTargetAsync(
+        CancellationToken ct = default);
+
     Task SaveChangesAsync(CancellationToken ct = default);
 }
 
