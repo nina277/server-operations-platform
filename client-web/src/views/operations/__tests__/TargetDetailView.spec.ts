@@ -25,6 +25,7 @@ const target: Target = {
   autoRecoveryEnabled: false,
   allowedContainers: ['nextcloud-app'],
   collectionIntervalSeconds: null,
+  enabledMonitors: ['container-state', 'log-excerpt'],
   settings: { socketPath: '/var/run/docker.sock' },
   configuredCredentials: ['apiToken'],
   createdAt: '2026-07-01T00:00:00Z',
@@ -56,6 +57,7 @@ const template: AdapterTemplate = {
     },
   ],
   recommendedMonitors: [],
+  collectableMonitors: ['container-state', 'log-excerpt'],
   initialRules: [],
   allowedOperations: ['RESTART_ALLOWED_CONTAINER'],
   capabilities: ['container'],
@@ -79,6 +81,7 @@ vi.mock('@/api/operations', () => ({
       capabilities: ['container'],
       allowedOperations: ['RESTART_ALLOWED_CONTAINER'],
       recommendedMonitors: [],
+      collectableMonitors: ['container-state', 'log-excerpt'],
       initialRules: [],
     }),
   fetchAdapterTemplates: () => Promise.resolve([template]),
@@ -409,5 +412,60 @@ describe('TargetDetailView', () => {
     expect(wrapper.get('[data-testid="delete-section"]').text()).toContain(
       '監視中の対象は削除できません。',
     )
+  })
+
+  // --- 行う収集の選択(B-06) ---
+
+  it('行える収集を選択肢として出す', async () => {
+    // 選択肢はテンプレートの能力から作る。「推奨」は案内であって選択肢ではない。
+    const wrapper = await mountView()
+
+    expect(wrapper.find('[data-testid="monitor-container-state"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="monitor-log-excerpt"]').exists()).toBe(true)
+  })
+
+  it('保存済みの選択を反映する', async () => {
+    fetchTarget.mockResolvedValue({ ...target, enabledMonitors: ['container-state'] })
+
+    const wrapper = await mountView()
+
+    expect(
+      (wrapper.get('[data-testid="monitor-container-state"]').element as HTMLInputElement).checked,
+    ).toBe(true)
+    expect(
+      (wrapper.get('[data-testid="monitor-log-excerpt"]').element as HTMLInputElement).checked,
+    ).toBe(false)
+  })
+
+  it('外した収集は送らない', async () => {
+    const wrapper = await mountView()
+
+    await wrapper.get('[data-testid="monitor-log-excerpt"]').setValue(false)
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(nthCall(updateTarget.mock.calls, 0)[1].enabledMonitors).toEqual(['container-state'])
+  })
+
+  it('すべて外した場合も送る内容は空にする', async () => {
+    // サーバー側で既定へ戻す。画面が勝手に補わない。
+    const wrapper = await mountView()
+
+    await wrapper.get('[data-testid="monitor-container-state"]').setValue(false)
+    await wrapper.get('[data-testid="monitor-log-excerpt"]').setValue(false)
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(nthCall(updateTarget.mock.calls, 0)[1].enabledMonitors).toEqual([])
+  })
+
+  it('すべて外すと既定に戻ることを伝える', async () => {
+    // 「何もしない」と読み違えると、監視を止めたつもりで止まっていない
+    const wrapper = await mountView()
+
+    await wrapper.get('[data-testid="monitor-container-state"]').setValue(false)
+    await wrapper.get('[data-testid="monitor-log-excerpt"]').setValue(false)
+
+    expect(wrapper.text()).toContain('テンプレートの既定に戻ります')
   })
 })

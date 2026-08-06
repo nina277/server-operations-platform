@@ -18,10 +18,13 @@ export interface AdapterTemplate {
   name: string
   description: string
   inputs: AdapterTemplateInput[]
+  /** 案内の文章。選択肢ではない。 */
   recommendedMonitors: string[]
   initialRules: string[]
   allowedOperations: string[]
   capabilities: string[]
+  /** 対象ごとに入切できる収集の種類。画面の選択肢はこれで作る。 */
+  collectableMonitors: string[]
 }
 
 export interface Target {
@@ -39,6 +42,11 @@ export interface Target {
   configuredCredentials: string[]
   /** この対象の収集間隔(秒)。nullなら全体の既定値で動く。 */
   collectionIntervalSeconds: number | null
+  /**
+   * この対象で行う収集の種類。
+   * 未設定でもテンプレートの既定を展開して返るため、空 = 何もしない ではない。
+   */
+  enabledMonitors: string[]
   createdAt: string
   updatedAt: string
 }
@@ -62,6 +70,8 @@ export interface UpdateTargetRequest {
    * 実際に使える値へ丸められるため、送った値がそのまま返るとは限らない。
    */
   collectionIntervalSeconds?: number | null
+  /** 省略(undefined)ならテンプレートで行えるものすべて。 */
+  enabledMonitors?: string[] | null
   settings: Record<string, string>
   /** 変更する秘密値のみ入れる。省略したものは維持される。 */
   credentials: Record<string, string>
@@ -80,6 +90,8 @@ export interface TargetCapabilities {
   capabilities: string[]
   allowedOperations: string[]
   recommendedMonitors: string[]
+  /** 対象ごとに入切できる収集の種類。 */
+  collectableMonitors: string[]
   initialRules: string[]
 }
 

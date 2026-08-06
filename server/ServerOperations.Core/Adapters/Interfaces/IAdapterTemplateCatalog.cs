@@ -27,10 +27,22 @@ public record AdapterTemplate(
     string Name,
     string Description,
     IReadOnlyList<TemplateInput> Inputs,
+    /// <summary>
+    /// この種類の対象で見ると良い項目。画面での案内に使う説明であり、
+    /// 選択の対象ではない。実際に選べるものは CollectableMonitors。
+    /// </summary>
     IReadOnlyList<string> RecommendedMonitors,
     IReadOnlyList<string> InitialRules,
     IReadOnlyList<string> AllowedOperations,
-    IReadOnlyList<string> Capabilities);
+    IReadOnlyList<string> Capabilities,
+    /// <summary>
+    /// 対象ごとに入切できる収集の単位。
+    ///
+    /// 「収集として独立して行う仕事」だけを並べる。
+    /// 例えば再起動回数はコンテナ一覧に付いてくる値で、単独では止められない。
+    /// 止められないものを選択肢に出すと、外しても何も変わらない設定になる。
+    /// </summary>
+    IReadOnlyList<string> CollectableMonitors);
 
 public interface IAdapterTemplateCatalog
 {

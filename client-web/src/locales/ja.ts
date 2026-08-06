@@ -163,6 +163,11 @@ export default {
     collectionIntervalHelp:
       '空にすると全体の既定値で動きます。60〜3600秒の範囲で、等間隔に動かせる値へ丸められます。短くしすぎると対象への負荷が増えます。',
     stoppedContainers: '動いていないコンテナ数',
+    monitors: '行う収集',
+    monitorsHelp:
+      'この対象で実際に行う収集を選びます。外したものは呼び出しそのものを行いません。',
+    monitorsNoneNote:
+      'すべて外すとテンプレートの既定に戻ります。収集を止めたい場合は「監視する」を外してください。',
     lastUpdated: '最終更新',
     noAllowedContainers: '許可コンテナが未設定です',
     autoRecoveryOn: '自動復旧: 有効',
@@ -424,6 +429,11 @@ export default {
       '{name} のMFAをリセットしますか。この利用者のログインはすべて解除され、MFAを設定し直すまで管理操作ができなくなります。操作は監査に残ります。',
     noDeleteNote:
       '利用者は削除できません。無効にすると、以後のログインとセッションの更新ができなくなります。',
+  },
+  monitorKinds: {
+    'container-state': 'コンテナの状態(一覧と停止の検知)',
+    'log-excerpt': '停止コンテナのログ抜粋',
+    'http-check': 'HTTPの死活と応答時間',
   },
   chart: {
     summary: '{count}件 / 最新 {latest} / 範囲 {min}〜{max}',

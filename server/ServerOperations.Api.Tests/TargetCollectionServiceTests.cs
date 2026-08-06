@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Logging.Abstractions;
+using ServerOperations.Core.Adapters.Implementations;
 using ServerOperations.Core.Adapters.Interfaces;
 using ServerOperations.Core.Models.Operations;
 using ServerOperations.Core.Services;
@@ -26,7 +27,8 @@ public class TargetCollectionServiceTests
     private readonly FakeAutoRecoveryService _autoRecovery = new();
 
     private TargetCollectionService CreateSut() => new(
-        _targets, _snapshots, _incidents, _logs, _docker, _http, _dataProtection, _diagnosis, _notifications, _autoRecovery, _time,
+        _targets, _snapshots, _incidents, _logs, _docker, _http, new AdapterTemplateCatalog(),
+        _dataProtection, _diagnosis, _notifications, _autoRecovery, _time,
         NullLogger<TargetCollectionService>.Instance);
 
     private void AddDockerTarget(long id = 1)
@@ -156,7 +158,8 @@ public class TargetCollectionServiceTests
         AddHttpTarget();
         var throwingHttp = new ThrowingHttpAdapter();
         var sut = new TargetCollectionService(
-            _targets, _snapshots, _incidents, _logs, _docker, throwingHttp, _dataProtection, _diagnosis, _notifications, _autoRecovery, _time,
+            _targets, _snapshots, _incidents, _logs, _docker, throwingHttp, new AdapterTemplateCatalog(),
+            _dataProtection, _diagnosis, _notifications, _autoRecovery, _time,
             NullLogger<TargetCollectionService>.Instance);
 
         await sut.CollectAsync(1);
@@ -317,7 +320,8 @@ public class TargetCollectionServiceTests
         AddHttpTarget();
         var sut = new TargetCollectionService(
             _targets, _snapshots, _incidents, _logs, _docker, new ThrowingHttpAdapter(),
-            _dataProtection, _diagnosis, _notifications, _autoRecovery, _time,
+            new AdapterTemplateCatalog(), _dataProtection, _diagnosis, _notifications, _autoRecovery,
+            _time,
             NullLogger<TargetCollectionService>.Instance);
 
         await sut.CollectAsync(1);
@@ -342,5 +346,76 @@ public class TargetCollectionServiceTests
         public Task<AdapterConnectionResult> TestConnectionAsync(
             HttpCheckOptions options, CancellationToken ct = default) =>
             throw new HttpRequestException("boom");
+    }
+
+    // --- 対象ごとの監視項目(B-06) ---
+
+    private void SetEnabledMonitors(long id, string? json) =>
+        _targets.Targets.Single(t => t.Id == id).EnabledMonitorsJson = json;
+
+    [Fact]
+    public async Task 未設定ならテンプレートの既定どおり収集する()
+    {
+        AddDockerTarget();
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "exited", "Exited (137)", 3)];
+        _docker.ContainerLogs["c1"] = "fatal error";
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Single(_snapshots.Snapshots);
+        Assert.Single(_docker.LogRequests);
+    }
+
+    [Fact]
+    public async Task ログ抜粋を外すとログを取りに行かない()
+    {
+        // 外しても呼び続けるなら、設定が効いていないのと同じ
+        AddDockerTarget();
+        SetEnabledMonitors(1, $"[\"{MonitorKinds.ContainerState}\"]");
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "exited", "Exited (137)", 3)];
+        _docker.ContainerLogs["c1"] = "fatal error";
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Empty(_docker.LogRequests);
+    }
+
+    [Fact]
+    public async Task ログ抜粋を外してもインシデントは作る()
+    {
+        // 止めたのはログの取得だけ。停止の検知まで止めては監視にならない。
+        AddDockerTarget();
+        SetEnabledMonitors(1, $"[\"{MonitorKinds.ContainerState}\"]");
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "exited", "Exited (137)", 3)];
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Single(_incidents.Incidents);
+    }
+
+    [Fact]
+    public async Task コンテナ状態を外すと収集そのものを行わない()
+    {
+        AddDockerTarget();
+        SetEnabledMonitors(1, $"[\"{MonitorKinds.LogExcerpt}\"]");
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "exited", "Exited (137)", 3)];
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Empty(_snapshots.Snapshots);
+        Assert.Empty(_incidents.Incidents);
+    }
+
+    [Fact]
+    public async Task 壊れた設定でも収集は止めない()
+    {
+        // 設定が壊れただけで監視が黙って止まるのは避ける
+        AddDockerTarget();
+        SetEnabledMonitors(1, "これはJSONではない");
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "running", "Up", 0)];
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Single(_snapshots.Snapshots);
     }
 }

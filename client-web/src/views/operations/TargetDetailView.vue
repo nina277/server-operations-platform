@@ -58,6 +58,8 @@ const draft = ref<{
   autoRecoveryEnabled: boolean
   /** 収集間隔(秒)。空文字は「全体の既定値に従う」を意味する。 */
   collectionIntervalText: string
+  /** この対象で行う収集の種類。 */
+  enabledMonitors: string[]
   allowedContainersText: string
   settings: Record<string, string>
   credentials: Record<string, string | null>
@@ -157,6 +159,12 @@ async function handleDelete(): Promise<void> {
   }
 }
 
+/**
+ * 入切できる収集の種類。テンプレートの能力から作る。
+ * 「推奨する監視項目」は案内の文章であり、選択肢ではない。
+ */
+const collectableMonitors = computed(() => capabilities.value?.collectableMonitors ?? [])
+
 const plainInputs = computed(() => template.value?.inputs.filter((i) => !i.secret) ?? [])
 const secretInputs = computed(() => template.value?.inputs.filter((i) => i.secret) ?? [])
 
@@ -168,6 +176,7 @@ function resetDraft(target: Target): void {
     autoRecoveryEnabled: target.autoRecoveryEnabled,
     collectionIntervalText:
       target.collectionIntervalSeconds === null ? '' : String(target.collectionIntervalSeconds),
+    enabledMonitors: [...target.enabledMonitors],
     allowedContainersText: target.allowedContainers.join('\n'),
     settings: { ...target.settings },
     credentials: {},
@@ -235,6 +244,7 @@ async function handleSave(): Promise<void> {
       isEnabled: draft.value.isEnabled,
       autoRecoveryEnabled: draft.value.autoRecoveryEnabled,
       collectionIntervalSeconds: toOptionalNumber(draft.value.collectionIntervalText),
+      enabledMonitors: draft.value.enabledMonitors,
       allowedContainers,
       settings: draft.value.settings,
       credentials,
@@ -402,6 +412,30 @@ async function handleHealthCheck(): Promise<void> {
               {{ t('targets.collectionIntervalHelp') }}
             </p>
           </div>
+
+          <fieldset v-if="collectableMonitors.length > 0" class="monitors">
+            <legend>{{ t('targets.monitors') }}</legend>
+            <p class="form-field__help">{{ t('targets.monitorsHelp') }}</p>
+
+            <div
+              v-for="monitor in collectableMonitors"
+              :key="monitor"
+              class="form-field form-field--inline"
+            >
+              <input
+                :id="`monitor-${monitor}`"
+                v-model="draft.enabledMonitors"
+                type="checkbox"
+                :value="monitor"
+                :data-testid="`monitor-${monitor}`"
+              />
+              <label :for="`monitor-${monitor}`">{{ t(`monitorKinds.${monitor}`) }}</label>
+            </div>
+
+            <p v-if="draft.enabledMonitors.length === 0" class="form-field__help">
+              {{ t('targets.monitorsNoneNote') }}
+            </p>
+          </fieldset>
 
           <div class="form-field">
             <label for="target-containers">{{ t('targets.allowedContainers') }}</label>
@@ -599,6 +633,18 @@ async function handleHealthCheck(): Promise<void> {
 .message--ok {
   color: var(--color-low);
   background-color: var(--color-low-bg);
+}
+
+.monitors {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+}
+
+.monitors legend {
+  font-weight: 600;
+  padding: 0 var(--spacing-xs);
 }
 
 .form-field--inline {

@@ -164,6 +164,11 @@ export default {
     collectionIntervalHelp:
       'Leave empty to use the system default. Values are clamped to 60-3600 seconds and rounded to an interval that runs evenly. Shorter intervals put more load on the target.',
     stoppedContainers: 'Containers not running',
+    monitors: 'Collection to perform',
+    monitorsHelp:
+      'Choose what is actually collected for this target. Unchecked items are not requested at all.',
+    monitorsNoneNote:
+      'Unchecking everything falls back to the template default. To stop collecting, turn off "Monitor this target".',
     lastUpdated: 'Last updated',
     noAllowedContainers: 'No containers are allowed',
     autoRecoveryOn: 'Auto recovery: on',
@@ -426,6 +431,11 @@ export default {
       'Reset MFA for {name}? All of their sessions are signed out and they cannot perform admin actions until MFA is set up again. This is recorded in the audit log.',
     noDeleteNote:
       'Users cannot be deleted. Deactivating stops further logins and session refreshes.',
+  },
+  monitorKinds: {
+    'container-state': 'Container state (list and stop detection)',
+    'log-excerpt': 'Log excerpt from stopped containers',
+    'http-check': 'HTTP liveness and latency',
   },
   chart: {
     summary: '{count} points / latest {latest} / range {min}–{max}',

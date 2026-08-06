@@ -37,7 +37,8 @@ public class AdapterTemplatesController(IAdapterTemplateCatalog catalog) : Contr
         template.RecommendedMonitors,
         template.InitialRules,
         template.AllowedOperations,
-        template.Capabilities);
+        template.Capabilities,
+        template.CollectableMonitors);
 
     private string TraceId() => ExceptionHandlingMiddleware.GetTraceId(HttpContext);
 }

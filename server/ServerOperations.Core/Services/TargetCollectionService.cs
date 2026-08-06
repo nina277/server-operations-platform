@@ -24,6 +24,7 @@ public class TargetCollectionService(
     IIncidentLogRepository incidentLogs,
     IDockerAdapter dockerAdapter,
     IHttpAdapter httpAdapter,
+    IAdapterTemplateCatalog templateCatalog,
     IDataProtectionProvider dataProtectionProvider,
     IDiagnosisService diagnosisService,
     Notifications.INotificationService notificationService,
@@ -49,18 +50,36 @@ public class TargetCollectionService(
             ? []
             : JsonSerializer.Deserialize<Dictionary<string, string>>(target.Profile.SettingsJson, JsonOptions) ?? [];
 
+        var template = templateCatalog.Find(target.TemplateId);
+        if (template is null)
+        {
+            logger.LogWarning(
+                "Unknown template {TemplateId} for target {TargetId}", target.TemplateId, target.Id);
+            return;
+        }
+
+        // この対象で行う収集だけに絞る。未設定ならテンプレートで行えるものすべて。
+        var enabled = EnabledMonitors.Resolve(target, template);
+
         try
         {
             switch (target.TemplateId)
             {
                 case "docker-host":
-                    await CollectDockerAsync(target.Id, settings["endpoint"], composeProject: null, ct);
+                    await CollectDockerAsync(
+                        target.Id, settings["endpoint"], composeProject: null, enabled, ct);
                     break;
                 case "docker-compose-app":
-                    await CollectDockerAsync(target.Id, settings["endpoint"], settings.GetValueOrDefault("composeProject"), ct);
+                    await CollectDockerAsync(
+                        target.Id, settings["endpoint"],
+                        settings.GetValueOrDefault("composeProject"), enabled, ct);
                     break;
                 case "web-site":
-                    await CollectHttpAsync(target, settings, ct);
+                    if (enabled.Contains(MonitorKinds.HttpCheck, StringComparer.Ordinal))
+                    {
+                        await CollectHttpAsync(target, settings, ct);
+                    }
+
                     break;
                 default:
                     logger.LogWarning("Unknown template {TemplateId} for target {TargetId}", target.TemplateId, target.Id);
@@ -76,8 +95,19 @@ public class TargetCollectionService(
     }
 
     private async Task CollectDockerAsync(
-        long targetId, string endpoint, string? composeProject, CancellationToken ct)
+        long targetId,
+        string endpoint,
+        string? composeProject,
+        IReadOnlyList<string> enabledMonitors,
+        CancellationToken ct)
     {
+        if (!enabledMonitors.Contains(MonitorKinds.ContainerState, StringComparer.Ordinal))
+        {
+            return;
+        }
+
+        var collectLogs = enabledMonitors.Contains(MonitorKinds.LogExcerpt, StringComparer.Ordinal);
+
         var now = timeProvider.GetUtcNow().UtcDateTime;
         var containers = await dockerAdapter.ListContainersAsync(endpoint, composeProject, ct);
 
@@ -105,14 +135,20 @@ public class TargetCollectionService(
             c.State.Equals("exited", StringComparison.OrdinalIgnoreCase) ||
             c.State.Equals("dead", StringComparison.OrdinalIgnoreCase)))
         {
-            string logExcerpt;
-            try
+            // ログ抜粋を外してある対象では取りに行かない。
+            // 一覧とは別のAPI呼び出しであり、外せば実際に呼ばなくなる。
+            string logExcerpt = string.Empty;
+            if (collectLogs)
             {
-                logExcerpt = await dockerAdapter.GetContainerLogsAsync(endpoint, container.Id, 50, ct);
-            }
-            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
-            {
-                logExcerpt = string.Empty;
+                try
+                {
+                    logExcerpt = await dockerAdapter.GetContainerLogsAsync(
+                        endpoint, container.Id, 50, ct);
+                }
+                catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+                {
+                    logExcerpt = string.Empty;
+                }
             }
 
             var (incident, shouldDiagnose) = await UpsertIncidentAsync(

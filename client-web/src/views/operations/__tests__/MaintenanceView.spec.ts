@@ -34,6 +34,7 @@ const target: Target = {
   autoRecoveryEnabled: false,
   allowedContainers: [],
   collectionIntervalSeconds: null,
+  enabledMonitors: [],
   settings: {},
   configuredCredentials: [],
   createdAt: '2026-07-01T00:00:00Z',

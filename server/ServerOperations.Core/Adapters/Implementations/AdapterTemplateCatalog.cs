@@ -1,4 +1,5 @@
 using ServerOperations.Core.Adapters.Interfaces;
+using ServerOperations.Core.Services;
 
 namespace ServerOperations.Core.Adapters.Implementations;
 
@@ -20,15 +21,17 @@ public class AdapterTemplateCatalog : IAdapterTemplateCatalog
                     "endpoint", "Docker APIエンドポイント", TemplateInputType.Url, Required: true, Secret: false,
                     "Docker Socket Proxy(例: http://socket-proxy:2375)またはTLS保護済みAPI(https://host:2376)のURL。docker.sockの直接マウントは使用しない。"),
             ],
-            RecommendedMonitors: ["container-state", "cpu", "memory", "restart-count", "log-excerpt"],
+            // cpu / memory は収集の実装が無い。案内に並べると
+            // 「設定したのに値が出ない」ことになるため載せない。
+            RecommendedMonitors: ["container-state", "restart-count", "log-excerpt"],
             InitialRules: ["ContainerStopped", "MemoryPressure", "DiskPressure"],
             AllowedOperations: ["RESTART_ALLOWED_CONTAINER", "START_ALLOWED_CONTAINER", "STOP_ALLOWED_CONTAINER"],
             Capabilities:
             [
                 "docker.containers.list", "docker.container.inspect", "docker.container.logs",
                 "docker.container.start", "docker.container.stop", "docker.container.restart",
-                "metrics.cpu", "metrics.memory",
-            ]),
+            ],
+            CollectableMonitors: [MonitorKinds.ContainerState, MonitorKinds.LogExcerpt]),
         new(
             Id: DockerComposeApp,
             Name: "Docker Compose Application",
@@ -49,7 +52,8 @@ public class AdapterTemplateCatalog : IAdapterTemplateCatalog
             [
                 "docker.containers.list", "docker.container.inspect", "docker.container.logs",
                 "docker.container.start", "docker.container.stop", "docker.container.restart",
-            ]),
+            ],
+            CollectableMonitors: [MonitorKinds.ContainerState, MonitorKinds.LogExcerpt]),
         new(
             Id: WebSite,
             Name: "Web Site / API",
@@ -75,7 +79,9 @@ public class AdapterTemplateCatalog : IAdapterTemplateCatalog
             RecommendedMonitors: ["http-status", "http-latency"],
             InitialRules: ["HttpUnavailable"],
             AllowedOperations: ["RECHECK_HTTP_HEALTH"],
-            Capabilities: ["http.check"]),
+            Capabilities: ["http.check"],
+            // 死活と応答時間は同じ1回の呼び出しで取れるため、まとめて1つの単位にする
+            CollectableMonitors: [MonitorKinds.HttpCheck]),
     ];
 
     public IReadOnlyList<AdapterTemplate> GetAll() => Templates;

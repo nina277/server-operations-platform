@@ -42,6 +42,7 @@ const target: Target = {
   autoRecoveryEnabled: false,
   allowedContainers: ['nextcloud-app', 'nextcloud-db'],
   collectionIntervalSeconds: null,
+  enabledMonitors: [],
   settings: {},
   configuredCredentials: [],
   createdAt: '2026-07-01T00:00:00Z',
@@ -54,6 +55,7 @@ const capabilities: TargetCapabilities = {
   capabilities: ['container'],
   allowedOperations: ['RESTART_ALLOWED_CONTAINER', 'STOP_ALLOWED_CONTAINER'],
   recommendedMonitors: [],
+  collectableMonitors: [],
   initialRules: [],
 }
 

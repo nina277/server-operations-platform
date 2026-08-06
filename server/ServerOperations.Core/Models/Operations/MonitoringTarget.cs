@@ -33,6 +33,15 @@ public class MonitoringTarget
     /// </summary>
     public int? CollectionIntervalSeconds { get; set; }
 
+    /// <summary>
+    /// この対象で行う収集の種類(JSON配列)。nullならテンプレートで行えるものすべて。
+    ///
+    /// 「どれができるか」はテンプレートが決め、「今回どれを使うか」はここが決める。
+    /// 能力と運用上の選択を同じ場所に置くと、対象を1つ変えるだけで
+    /// 同じテンプレートの他の対象まで影響することになる。
+    /// </summary>
+    public string? EnabledMonitorsJson { get; set; }
+
     public DateTime CreatedAt { get; set; }
 
     public DateTime UpdatedAt { get; set; }

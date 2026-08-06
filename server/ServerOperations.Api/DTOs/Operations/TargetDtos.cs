@@ -20,7 +20,8 @@ public record AdapterTemplateDto(
     IReadOnlyList<string> RecommendedMonitors,
     IReadOnlyList<string> InitialRules,
     IReadOnlyList<string> AllowedOperations,
-    IReadOnlyList<string> Capabilities);
+    IReadOnlyList<string> Capabilities,
+    IReadOnlyList<string> CollectableMonitors);
 
 public record TargetDto
 {
@@ -44,6 +45,13 @@ public record TargetDto
     /// この対象の収集間隔(秒)。nullなら全体の既定値で動く。
     /// </summary>
     public int? CollectionIntervalSeconds { get; init; }
+
+    /// <summary>
+    /// この対象で行う収集の種類。
+    /// 未設定でもテンプレートで行えるものすべてを展開して返すため、
+    /// 画面側は「空 = 何もしない」と読み違えずに済む。
+    /// </summary>
+    public required IReadOnlyList<string> EnabledMonitors { get; init; }
 
     /// <summary>非秘密の設定値。秘密値(資格情報)は種別名のみconfiguredCredentialsで返す。</summary>
     public required IReadOnlyDictionary<string, string> Settings { get; init; }
@@ -104,6 +112,12 @@ public record UpdateTargetRequest
         ErrorMessage = "収集間隔は60〜3600秒の範囲で指定してください。")]
     public int? CollectionIntervalSeconds { get; init; }
 
+    /// <summary>
+    /// この対象で行う収集の種類。省略(null)ならテンプレートで行えるものすべて。
+    /// テンプレートで行えない種類を指定すると拒否される。
+    /// </summary>
+    public List<string>? EnabledMonitors { get; init; }
+
     public Dictionary<string, string> Settings { get; init; } = [];
 
     /// <summary>更新する資格情報のみ指定する(省略したものは維持)。</summary>
@@ -132,6 +146,12 @@ public record TargetCapabilitiesDto
     public required IReadOnlyList<string> AllowedOperations { get; init; }
 
     public required IReadOnlyList<string> RecommendedMonitors { get; init; }
+
+    /// <summary>
+    /// 対象ごとに入切できる収集の種類。画面の選択肢はこれで作る。
+    /// RecommendedMonitors は案内の文章であり、選択肢ではない。
+    /// </summary>
+    public required IReadOnlyList<string> CollectableMonitors { get; init; }
 
     public required IReadOnlyList<string> InitialRules { get; init; }
 }

@@ -76,9 +76,15 @@ public class FakeDockerAdapter : IDockerAdapter
         return Task.FromResult<IReadOnlyList<ContainerInfo>>(Containers);
     }
 
+    /// <summary>ログを取りに行った回数。外したときに呼ばれないことを確かめるのに使う。</summary>
+    public List<string> LogRequests { get; } = [];
+
     public Task<string> GetContainerLogsAsync(
-        string endpoint, string containerId, int tailLines = 50, CancellationToken ct = default) =>
-        Task.FromResult(ContainerLogs.GetValueOrDefault(containerId, string.Empty));
+        string endpoint, string containerId, int tailLines = 50, CancellationToken ct = default)
+    {
+        LogRequests.Add(containerId);
+        return Task.FromResult(ContainerLogs.GetValueOrDefault(containerId, string.Empty));
+    }
 
     public List<(string Endpoint, string Container, ContainerOperation Operation)> ControlCalls { get; } = [];
 

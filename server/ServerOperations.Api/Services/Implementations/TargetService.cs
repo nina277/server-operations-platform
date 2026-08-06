@@ -116,6 +116,9 @@ public class TargetService(
         target.CollectionIntervalSeconds = request.CollectionIntervalSeconds is { } seconds
             ? CollectionInterval.Normalize(seconds)
             : null;
+        // テンプレートで行えない種類は黙って捨てず、保存前に拒否する
+        EnabledMonitors.Validate(request.EnabledMonitors, template);
+        target.EnabledMonitorsJson = EnabledMonitors.Serialize(request.EnabledMonitors, template);
         target.UpdatedAt = now;
 
         if (target.Profile is null)
@@ -181,6 +184,7 @@ public class TargetService(
             Capabilities = template.Capabilities,
             AllowedOperations = template.AllowedOperations,
             RecommendedMonitors = template.RecommendedMonitors,
+            CollectableMonitors = template.CollectableMonitors,
             InitialRules = template.InitialRules,
         };
     }
@@ -390,7 +394,11 @@ public class TargetService(
         return credential is null ? null : _protector.Unprotect(credential.ValueProtected);
     }
 
-    private static TargetDto ToDto(MonitoringTarget target) => new()
+    /// <summary>
+    /// 表示用へ直す。行う収集の種類は、未設定でもテンプレートの既定を展開して返す。
+    /// 空のまま返すと、画面側が「何もしない」と読み違える。
+    /// </summary>
+    private TargetDto ToDto(MonitoringTarget target) => new()
     {
         Id = target.Id,
         Name = target.Name,
@@ -400,6 +408,9 @@ public class TargetService(
         AutoRecoveryEnabled = target.AutoRecoveryEnabled,
         AllowedContainers = AllowedContainers.Parse(target),
         CollectionIntervalSeconds = target.CollectionIntervalSeconds,
+        EnabledMonitors = catalog.Find(target.TemplateId) is { } template
+            ? EnabledMonitors.Resolve(target, template)
+            : [],
         Settings = ReadSettings(target),
         ConfiguredCredentials = target.Credentials.Select(c => c.Kind).OrderBy(k => k).ToList(),
         CreatedAt = target.CreatedAt,
