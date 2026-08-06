@@ -42,6 +42,19 @@ Docker Engine APIは**ホストのファイルシステム容量を返さない�
 `EXEC`、イメージ操作、ボリューム操作、ネットワーク操作、Swarm系はすべて拒否する。
 `docker.sock` を持つのはSocket Proxyだけで、web/apiコンテナへは渡さない。
 
+## 検証を丸ごと自動で行う
+
+配置・MFA設定・監視対象の登録・シナリオ実行・成功基準の測定までを1コマンドで行う。
+
+```bash
+LAB_AIOOPS_CONFIRMED=yes ./scripts/lab-verify.sh all
+```
+
+報告書は `deploy/lab-aioops/.verify/report-<日時>.md` に出る。
+詳細は `docs/verification.md` を参照。
+
+以下は手動で行う場合の手順。
+
 ## 起動
 
 ```bash

@@ -25,3 +25,6 @@ coverage/
 .idea/
 .DS_Store
 *.swp
+
+# 実環境試験の作業ディレクトリ(認証情報が入るためコミットしない)
+deploy/lab-aioops/.verify/
