@@ -59,8 +59,11 @@ fi
 
 lab_compose="${ROOT_DIR}/deploy/lab-aioops/docker-compose.yml"
 if [ -f "${lab_compose}" ]; then
-  # docker.sock を持つサービスを列挙し、socket-proxy 以外が持っていないか見る
+  # docker.sock を持つサービスを列挙し、socket-proxy 以外が持っていないか見る。
+  # コメント行は見ない。「docker.sock は渡さない」と書いた説明を
+  # マウントと取り違えないため(実際にそれで誤検知した)。
   holder=$(awk '
+    /^[[:space:]]*#/ { next }
     /^  [a-zA-Z0-9_-]+:/ { service = $1; sub(":", "", service) }
     /docker\.sock/ { print service }
   ' "${lab_compose}" | sort -u)

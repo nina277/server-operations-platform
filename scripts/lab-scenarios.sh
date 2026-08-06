@@ -17,6 +17,9 @@
 #   ./lab-scenarios.sh sc04          SC-04: lab-disk 内のtmpfsを満たす
 #   ./lab-scenarios.sh sc04-restore  SC-04: tmpfs を空にする
 #   ./lab-scenarios.sh sc05          SC-05: 未知のエラーログを出力する
+#   ./lab-scenarios.sh sc06          SC-06: ディスク使用率を df と突き合わせる
+#   ./lab-scenarios.sh sc07          SC-07: lab-load のCPU・メモリ使用率を上げる
+#   ./lab-scenarios.sh sc07-restore  SC-07: lab-load の使用率を戻す
 #   ./lab-scenarios.sh st-ai         ST-AI: プロンプト注入を含むログを出力する
 
 set -euo pipefail
@@ -116,6 +119,54 @@ case "${1:-}" in
     ${COMPOSE} exec -T lab-unknown-log sh -c \
       'echo "ERROR quantum flux desynchronization in module ZX-7 (code 0x8badf00d)" >&2'
     echo "SC-05: 未知のエラーログを出力しました。安全な保留または原因候補の提示を確認してください。"
+    ;;
+
+  sc06)
+    require_lab_environment
+    # 収集した使用率が正しいかは、ホストの df と突き合わせるのが最も確実。
+    # 同じ計算式(HostMetricsAdapter と同じもの)で node_exporter の出力からも求め、
+    # 両方を並べて出す。
+    echo "SC-06: ホストのディスク使用率を df と node_exporter で突き合わせます。"
+    echo
+    echo "--- df(ホストの実際の値) ---"
+    df -P -x tmpfs -x devtmpfs -x overlay -x squashfs
+    echo
+    echo "--- node_exporter(監視システムが読む値) ---"
+    ${COMPOSE} exec -T lab-load sh -c 'wget -qO- http://node-exporter:9100/metrics' \
+      | awk -f "${COMPOSE_DIR}/filesystem-usage.awk"
+    echo
+    echo "SIZE と AVAIL は単位が違う(df は1Kブロック、node_exporter はバイト)。"
+    echo "**USE% が一致していること**を確認してください。"
+    echo "ずれる場合は、全容量を分母にしていないか(root予備領域の扱い)を疑います。"
+    echo
+    echo "検知まで確かめるには、診断ルール「ディスク逼迫(使用率)」のしきい値を"
+    echo "現在の USE% より低い値にして保存し、次の収集でインシデントが作られることを見ます。"
+    ;;
+
+  sc07)
+    require_lab_environment
+    # メモリ上限64MB・CPU 0.5コアの内側だけで使用率を上げる。
+    # ホストや他のコンテナには影響しない。
+    echo "SC-07: lab-load の使用率を上げます(上限の内側だけで動きます)。"
+    ${COMPOSE} exec -T lab-load sh -c \
+      'dd if=/dev/zero of=/load/fill bs=1M count=40 2>/dev/null; echo "メモリを40MB使用しました。"'
+    ${COMPOSE} exec -d lab-load sh -c \
+      'end=$(( $(date +%s) + 120 )); while [ "$(date +%s)" -lt "$end" ]; do :; done'
+    echo "120秒間CPUを使用します。"
+    sleep 5
+    echo
+    echo "--- docker stats(比較用) ---"
+    docker stats --no-stream "$(${COMPOSE} ps -q lab-load)"
+    echo
+    echo "監視対象の詳細画面のグラフと docker stats が一致していれば、"
+    echo "収集した使用率は正しく計算できています。"
+    echo "**MEM % が大きくずれる場合は、ページキャッシュの差し引きを疑います。**"
+    ;;
+
+  sc07-restore)
+    require_lab_environment
+    ${COMPOSE} exec -T lab-load sh -c 'rm -f /load/fill; echo "メモリを解放しました。"'
+    echo "SC-07: 使用率を戻しました(CPUの負荷は120秒で自然に止まります)。"
     ;;
 
   st-ai)
