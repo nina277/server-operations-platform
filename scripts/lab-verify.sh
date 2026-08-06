@@ -35,8 +35,19 @@ DEPLOY_DIR="${ROOT_DIR}/deploy"
 LAB_DIR="${DEPLOY_DIR}/lab-aioops"
 WORK_DIR="${LAB_DIR}/.verify"
 
-PLATFORM="docker compose -f ${DEPLOY_DIR}/docker-compose.yml"
-LAB="docker compose -f ${LAB_DIR}/docker-compose.yml"
+# -f を明示すると docker-compose.override.yml が自動で読まれなくなる。
+# 機械ごとの上書き(ビルドのネットワーク設定など)は override で行うのが普通なので、
+# あれば明示的に足す。
+compose_files() {
+  local dir="$1"
+  local args
+  args=(-f "${dir}/docker-compose.yml")
+  [ -f "${dir}/docker-compose.override.yml" ] && args+=(-f "${dir}/docker-compose.override.yml")
+  printf '%s ' "${args[@]}"
+}
+
+PLATFORM="docker compose $(compose_files "${DEPLOY_DIR}")"
+LAB="docker compose $(compose_files "${LAB_DIR}")"
 SCENARIOS="${SCRIPT_DIR}/lab-scenarios.sh"
 TOTP="${SCRIPT_DIR}/lib/totp.py"
 
@@ -87,7 +98,13 @@ require_tools() {
 json_get() {
   python3 -c '
 import json, sys
-value = json.load(sys.stdin)
+try:
+    value = json.load(sys.stdin)
+except json.JSONDecodeError:
+    # 応答がJSONでないことはある(プロキシが返すエラーなど)。
+    # ここで落とすと原因が分からないまま止まるので、空を返して呼び出し側に任せる
+    print("")
+    sys.exit(0)
 for key in sys.argv[1].split("."):
     if value is None:
         break
@@ -106,7 +123,17 @@ api() {
   local args=(-sS -X "${method}" "${BASE_URL}${path}"
               -H "Content-Type: application/json")
   [ -f "$(token_file)" ] && args+=(-H "Authorization: Bearer $(cat "$(token_file)")")
-  [ -n "${body}" ] && args+=(--data "${body}")
+
+  # 本文が無くても --data で空を渡す。
+  # curl は本文なしのPOSTに Content-Length を付けないため、
+  # 前段のnginxがRFC違反とみなして400を返す(APIには届かない)。
+  # ブラウザのXHRは常に Content-Length: 0 を送るので画面では起きない。
+  if [ -n "${body}" ]; then
+    args+=(--data "${body}")
+  elif [ "${method}" != "GET" ]; then
+    args+=(--data "")
+  fi
+
   curl "${args[@]}"
 }
 
@@ -167,13 +194,47 @@ wait_until() {
   return 1
 }
 
+# 監視対象として登録するIPを決める。
+# loopbackとリンクローカルは登録できないため、実際のLAN側アドレスが要る。
+# `ip` が入っていない環境があるので、手段を順に試す。
 detect_host_ip() {
   if [ -n "${LAB_HOST_IP:-}" ]; then
     printf '%s' "${LAB_HOST_IP}"
     return
   fi
-  # 既定経路の送信元アドレス。loopbackとリンクローカルは監視対象に登録できない
-  ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}'
+
+  local candidate
+
+  # 1) 既定経路の送信元アドレス(いちばん確実)
+  if command -v ip >/dev/null 2>&1; then
+    candidate="$(ip route get 1.1.1.1 2>/dev/null \
+      | awk '{for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}')"
+    if [ -n "${candidate}" ]; then
+      printf '%s' "${candidate}"
+      return
+    fi
+  fi
+
+  # 2) hostname -I。Dockerのブリッジ(172.17.)とloopbackは避ける
+  if command -v hostname >/dev/null 2>&1; then
+    candidate="$(hostname -I 2>/dev/null | tr ' ' '\n' \
+      | grep -vE '^$|^127\.|^169\.254\.|^172\.1[6-9]\.|^172\.2[0-9]\.|^172\.3[01]\.' \
+      | head -1)"
+    if [ -n "${candidate}" ]; then
+      printf '%s' "${candidate}"
+      return
+    fi
+  fi
+
+  # 3) それも駄目なら、Dockerのブリッジでもよいので拾う
+  if command -v hostname >/dev/null 2>&1; then
+    candidate="$(hostname -I 2>/dev/null | tr ' ' '\n' \
+      | grep -vE '^$|^127\.|^169\.254\.' | head -1)"
+    if [ -n "${candidate}" ]; then
+      printf '%s' "${candidate}"
+      return
+    fi
+  fi
 }
 
 # --- 工程1: 配置 --------------------------------------------------------
@@ -270,6 +331,7 @@ cmd_schema() {
     FROM information_schema.COLUMNS
     WHERE TABLE_SCHEMA = DATABASE()
       AND DATA_TYPE IN ('datetime','timestamp')
+      AND TABLE_NAME NOT LIKE 'hangfire\\_%'
       AND (DATETIME_PRECISION IS NULL OR DATETIME_PRECISION <> 6);")"
 
   if [ -z "${bad_datetime}" ]; then
@@ -286,6 +348,7 @@ cmd_schema() {
     SELECT CONCAT(TABLE_NAME, ' = ', TABLE_COLLATION)
     FROM information_schema.TABLES
     WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME NOT LIKE 'hangfire\\_%'
       AND TABLE_COLLATION NOT LIKE 'utf8mb4%';")"
 
   if [ -z "${bad_charset}" ]; then

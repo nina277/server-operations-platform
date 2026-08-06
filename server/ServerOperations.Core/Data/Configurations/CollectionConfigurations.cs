@@ -16,7 +16,11 @@ public class MetricSnapshotConfiguration : IEntityTypeConfiguration<MetricSnapsh
         builder.Property(m => m.CollectedAt).HasColumnType("datetime(6)");
         builder.Property(m => m.Kind).HasMaxLength(32).IsRequired();
         builder.Property(m => m.Status).HasConversion<string>().HasMaxLength(16).IsRequired();
-        builder.Property(m => m.PayloadJson).HasMaxLength(16000);
+        // varchar(16000) は utf8mb4 で64000バイトを占め、他の列と合わせて
+        // MySQLの行サイズ上限(65535バイト)を超える。TEXT系は行に数バイトしか
+        // 計上されないため、長い本文はこちらを使う。
+        // **上限を超えるとCREATE TABLE自体が失敗し、配置できなくなる。**
+        builder.Property(m => m.PayloadJson).HasColumnType("longtext");
         builder.Property(m => m.ErrorMessage).HasMaxLength(1000);
     }
 }
@@ -59,6 +63,7 @@ public class IncidentLogConfiguration : IEntityTypeConfiguration<IncidentLog>
 
         builder.Property(l => l.CollectedAt).HasColumnType("datetime(6)");
         builder.Property(l => l.Source).HasMaxLength(200).IsRequired();
-        builder.Property(l => l.MaskedContent).HasMaxLength(16000).IsRequired();
+        // PayloadJson と同じ理由でTEXT系にする(長さの制限は保存前の切り詰めで行う)
+        builder.Property(l => l.MaskedContent).HasColumnType("longtext").IsRequired();
     }
 }

@@ -69,10 +69,11 @@ public class CollectionJobScheduler(
             }
 
             var targetId = plan.TargetId;
-            recurringJobs.AddOrUpdate<ITargetCollectionService>(
+            // キューは CollectionJob の [Queue] 属性で決まる。
+            // ここで渡す形は MySqlStorage が対応していない
+            recurringJobs.AddOrUpdate<CollectionJob>(
                 jobId,
-                "collection",
-                service => service.CollectAsync(targetId, CancellationToken.None),
+                job => job.RunAsync(targetId, CancellationToken.None),
                 plan.Cron);
 
             logger.LogInformation(

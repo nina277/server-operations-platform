@@ -90,6 +90,7 @@ if (!string.IsNullOrWhiteSpace(connectionString))
     builder.Services.AddScoped<IBackupSourceProvider, DatabaseBackupSourceProvider>();
     builder.Services.AddScoped<IBackupService, BackupService>();
     builder.Services.AddScoped<BackupJob>();
+    builder.Services.AddScoped<CollectionJob>();
 
     // アダプター用HTTPクライアント(接続時にも遮断対象IPを検査する)
     builder.Services.AddHttpClient(DockerAdapter.HttpClientName, client =>

@@ -454,8 +454,7 @@ namespace ServerOperations.Core.Migrations
 
                     b.Property<string>("MaskedContent")
                         .IsRequired()
-                        .HasMaxLength(16000)
-                        .HasColumnType("varchar(16000)");
+                        .HasColumnType("longtext");
 
                     b.Property<string>("Source")
                         .IsRequired()
@@ -495,8 +494,7 @@ namespace ServerOperations.Core.Migrations
                         .HasColumnType("varchar(32)");
 
                     b.Property<string>("PayloadJson")
-                        .HasMaxLength(16000)
-                        .HasColumnType("varchar(16000)");
+                        .HasColumnType("longtext");
 
                     b.Property<string>("Status")
                         .IsRequired()

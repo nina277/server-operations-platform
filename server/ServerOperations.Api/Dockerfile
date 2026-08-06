@@ -21,5 +21,11 @@ WORKDIR /app
 COPY --from=build /app .
 ENV ASPNETCORE_URLS=http://+:8080
 EXPOSE 8080
+# Data Protection の鍵置き場。名前付きボリュームをここへマウントするため、
+# **イメージ側にディレクトリを作って所有者を合わせておく**必要がある。
+# 用意しないとボリュームがroot所有で作られ、非rootで動くアプリが鍵を書けない。
+# 鍵が書けないとMFAの設定も秘密値の暗号化もできず、管理操作が一切行えなくなる。
+RUN mkdir -p /app/keys && chown -R $APP_UID:$APP_UID /app/keys
+
 USER $APP_UID
 ENTRYPOINT ["dotnet", "ServerOperations.Api.dll"]

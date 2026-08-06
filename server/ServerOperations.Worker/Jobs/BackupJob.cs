@@ -4,6 +4,8 @@ using ServerOperations.Core.Services.Backup;
 namespace ServerOperations.Worker.Jobs;
 
 /// <summary>定期バックアップ。失敗はBackupService側でHigh通知される。</summary>
+// キューは属性で指定する。AddOrUpdate に渡す形は MySqlStorage が対応していない
+[Hangfire.Queue("default")]
 public class BackupJob(IBackupService backupService, ILogger<BackupJob> logger)
 {
     public async Task RunAsync(CancellationToken ct = default)
@@ -26,7 +28,7 @@ public class BackupJobScheduler(
         var cron = configuration.GetValue("Backup:Cron", "0 2 * * *")!;
 
         recurringJobs.AddOrUpdate<BackupJob>(
-            JobId, "default", job => job.RunAsync(CancellationToken.None), cron);
+            JobId, job => job.RunAsync(CancellationToken.None), cron);
 
         logger.LogInformation("Registered backup job with cron '{Cron}'.", cron);
         return Task.CompletedTask;
