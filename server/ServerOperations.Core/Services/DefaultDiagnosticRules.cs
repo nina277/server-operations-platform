@@ -8,6 +8,23 @@ namespace ServerOperations.Core.Services;
 /// </summary>
 public static class DefaultDiagnosticRules
 {
+    /// <summary>
+    /// まだ登録されていない既定ルールだけを返す。
+    ///
+    /// 「テーブルが空のときだけ入れる」にすると、版を上げて既定ルールが増えても
+    /// **既に動いている環境には永久に届かない。**
+    /// 新しい収集を足しても、それを見る検知が入らないままになる。
+    ///
+    /// 名前で照合する。利用者が無効にしたルールは行として残るため、
+    /// 無効にしたものが復活することはない
+    /// (ルールを削除する口は用意しておらず、無効化までにとどめてある)。
+    /// </summary>
+    public static List<DiagnosticRule> Missing(IEnumerable<string> existingNames, DateTime nowUtc)
+    {
+        var existing = new HashSet<string>(existingNames, StringComparer.Ordinal);
+        return Create(nowUtc).Where(rule => !existing.Contains(rule.Name)).ToList();
+    }
+
     public static List<DiagnosticRule> Create(DateTime nowUtc) =>
     [
         new DiagnosticRule
