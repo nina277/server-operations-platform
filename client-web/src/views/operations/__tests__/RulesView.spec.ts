@@ -27,7 +27,7 @@ const rules: DiagnosticRule[] = [
     name: '止めてあるルール',
     classification: 'DiskPressure',
     ruleType: 'Threshold',
-    conditionJson: '{"field":"diskUsagePercent","operator":">=","value":90}',
+    conditionJson: '{"field":"cpuUsagePercent","operator":">=","value":90}',
     severity: 'Medium',
     recommendedActionId: null,
     priority: 20,
@@ -105,14 +105,14 @@ describe('RulesView', () => {
     // 文字列だけを想定していると実行時に壊れる
     const wrapper = await mountView()
 
-    await wrapper.get('#test-disk').setValue('95')
+    await wrapper.get('#test-cpu').setValue('95')
     await wrapper.get('#test-restart-count').setValue('3')
     await wrapper.get('form').trigger('submit')
     await flushPromises()
 
     expect(testDiagnosticRules).toHaveBeenCalledTimes(1)
     const request = lastCall(testDiagnosticRules.mock.calls)[0]
-    expect(request.diskUsagePercent).toBe(95)
+    expect(request.cpuUsagePercent).toBe(95)
     expect(request.restartCount).toBe(3)
     // 取得失敗の案内が出ていないこと
     expect(wrapper.findAll('[role="alert"]')).toHaveLength(0)
@@ -127,7 +127,7 @@ describe('RulesView', () => {
 
     const request = lastCall(testDiagnosticRules.mock.calls)[0]
     expect(request.containerState).toBe('exited')
-    expect(request.diskUsagePercent).toBeNull()
+    expect(request.cpuUsagePercent).toBeNull()
     expect(request.logExcerpt).toBeNull()
   })
 

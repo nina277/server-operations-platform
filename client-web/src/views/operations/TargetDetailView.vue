@@ -131,6 +131,32 @@ const stoppedContainerPoints = computed(() =>
   }),
 )
 
+/**
+ * 収集した使用率のうち、そのときいちばん高かったコンテナの値を取る。
+ *
+ * 平均にすると、1つのコンテナが上限に張り付いていても
+ * 他が空いていれば低く見えてしまい、逼迫が消える。
+ * 手当てが要るのは最も高いコンテナなので、最大値を追う。
+ */
+function peakResource(field: 'cpuUsagePercent' | 'memoryUsagePercent'): ChartPoint[] {
+  return seriesFrom('resource', (payload) => {
+    const containers = (payload as { containers?: unknown }).containers
+    if (!Array.isArray(containers)) {
+      return null
+    }
+
+    const values = containers
+      .map((c) => (c as Record<string, unknown>)[field])
+      .filter((v): v is number => typeof v === 'number')
+
+    // 1件も取れていない収集は点を落とす。0として描くと「使っていない」に見える
+    return values.length === 0 ? null : Math.max(...values)
+  })
+}
+
+const cpuPoints = computed(() => peakResource('cpuUsagePercent'))
+const memoryPoints = computed(() => peakResource('memoryUsagePercent'))
+
 /** テンプレートのうち秘密でない入力。値は設定画面で編集できる。 */
 async function handlePreviewDelete(): Promise<void> {
   deleting.value = true
@@ -493,6 +519,20 @@ async function handleHealthCheck(): Promise<void> {
             :title="t('targets.stoppedContainers')"
             :points="stoppedContainerPoints"
             data-testid="stopped-chart"
+          />
+          <MetricChart
+            v-if="cpuPoints.length > 0"
+            :title="t('targets.peakCpu')"
+            :points="cpuPoints"
+            unit="%"
+            data-testid="cpu-chart"
+          />
+          <MetricChart
+            v-if="memoryPoints.length > 0"
+            :title="t('targets.peakMemory')"
+            :points="memoryPoints"
+            unit="%"
+            data-testid="memory-chart"
           />
 
           <div v-if="metrics.length > 0" class="table-scroll">

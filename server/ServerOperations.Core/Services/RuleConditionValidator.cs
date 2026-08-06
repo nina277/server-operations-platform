@@ -20,14 +20,21 @@ public record RuleConditionValidationResult(bool IsValid, string? Error = null)
 /// </summary>
 public static class RuleConditionValidator
 {
-    /// <summary>条件で参照できる項目。DiagnosticContextが持つものだけを許す。</summary>
+    /// <summary>
+    /// 条件で参照できる項目。**収集が実際に値を入れるものだけ**を許す。
+    ///
+    /// 収集しない項目を並べると、当たらないルールを作れてしまう。
+    /// 画面上はルールが存在するため監視できているように見え、
+    /// 実際には何も検知しないという最も悪い形になる。
+    /// ディスク使用率(diskUsagePercent)を外したのはこの理由による。
+    /// </summary>
     public static readonly IReadOnlyList<string> AllowedFields =
     [
         "containerState",
         "containerName",
         "restartCount",
+        "cpuUsagePercent",
         "memoryUsagePercent",
-        "diskUsagePercent",
         "httpSuccess",
         "httpStatus",
         "httpLatencyMs",

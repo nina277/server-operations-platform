@@ -26,9 +26,13 @@ public class TargetCollectionServiceTests
     private readonly FakeNotificationService _notifications = new();
     private readonly FakeAutoRecoveryService _autoRecovery = new();
 
+    // しきい値の判定は本物を使う。差し替えると「ルールに当たったか」を確かめられない
+    private readonly FakeDiagnosticRuleRepository _rules = new();
+
     private TargetCollectionService CreateSut() => new(
         _targets, _snapshots, _incidents, _logs, _docker, _http, new AdapterTemplateCatalog(),
-        _dataProtection, _diagnosis, _notifications, _autoRecovery, _time,
+        _dataProtection, _diagnosis, new ResourceThresholdDetector(_rules, new RuleEngine()),
+        _notifications, _autoRecovery, _time,
         NullLogger<TargetCollectionService>.Instance);
 
     private void AddDockerTarget(long id = 1)
@@ -73,7 +77,7 @@ public class TargetCollectionServiceTests
 
         await CreateSut().CollectAsync(1);
 
-        var snapshot = Assert.Single(_snapshots.Snapshots);
+        var snapshot = Assert.Single(_snapshots.Snapshots, s => s.Kind == "docker");
         Assert.Equal(CollectionStatus.Ok, snapshot.Status);
         Assert.Contains("running", snapshot.PayloadJson);
         Assert.Empty(_incidents.Incidents);
@@ -159,7 +163,8 @@ public class TargetCollectionServiceTests
         var throwingHttp = new ThrowingHttpAdapter();
         var sut = new TargetCollectionService(
             _targets, _snapshots, _incidents, _logs, _docker, throwingHttp, new AdapterTemplateCatalog(),
-            _dataProtection, _diagnosis, _notifications, _autoRecovery, _time,
+            _dataProtection, _diagnosis, new ResourceThresholdDetector(_rules, new RuleEngine()),
+            _notifications, _autoRecovery, _time,
             NullLogger<TargetCollectionService>.Instance);
 
         await sut.CollectAsync(1);
@@ -320,7 +325,8 @@ public class TargetCollectionServiceTests
         AddHttpTarget();
         var sut = new TargetCollectionService(
             _targets, _snapshots, _incidents, _logs, _docker, new ThrowingHttpAdapter(),
-            new AdapterTemplateCatalog(), _dataProtection, _diagnosis, _notifications, _autoRecovery,
+            new AdapterTemplateCatalog(), _dataProtection, _diagnosis,
+            new ResourceThresholdDetector(_rules, new RuleEngine()), _notifications, _autoRecovery,
             _time,
             NullLogger<TargetCollectionService>.Instance);
 
@@ -362,7 +368,9 @@ public class TargetCollectionServiceTests
 
         await CreateSut().CollectAsync(1);
 
-        Assert.Single(_snapshots.Snapshots);
+        // 状態・ログ・使用率のすべてを行う
+        Assert.Single(_snapshots.Snapshots, s => s.Kind == "docker");
+        Assert.Single(_snapshots.Snapshots, s => s.Kind == "resource");
         Assert.Single(_docker.LogRequests);
     }
 
@@ -416,6 +424,215 @@ public class TargetCollectionServiceTests
 
         await CreateSut().CollectAsync(1);
 
-        Assert.Single(_snapshots.Snapshots);
+        Assert.Single(_snapshots.Snapshots, s => s.Kind == "docker");
+    }
+
+    // --- リソース使用率(B-10) ---
+
+    private void AddMemoryPressureRule(double threshold = 90)
+    {
+        _rules.Rules.Add(new DiagnosticRule
+        {
+            Id = 1,
+            Name = "メモリ逼迫(使用率)",
+            Classification = "MemoryPressure",
+            RuleType = DiagnosticRuleType.Threshold,
+            ConditionJson =
+                $$"""{"field":"memoryUsagePercent","operator":">=","value":{{threshold}}}""",
+            Severity = IncidentSeverity.Medium,
+            Priority = 20,
+            RationaleTemplate = "メモリ使用率が {value}% に達しています。",
+        });
+    }
+
+    [Fact]
+    public async Task 稼働中コンテナの使用率を収集して残す()
+    {
+        AddDockerTarget();
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "running", "Up", 0)];
+        _docker.Stats["c1"] = new ContainerStats(12.5, 40.0, 400, 1000);
+
+        await CreateSut().CollectAsync(1);
+
+        var snapshot = Assert.Single(_snapshots.Snapshots, s => s.Kind == "resource");
+        Assert.Equal(CollectionStatus.Ok, snapshot.Status);
+        Assert.Contains("12.5", snapshot.PayloadJson);
+        Assert.Contains("40", snapshot.PayloadJson);
+    }
+
+    [Fact]
+    public async Task 停止中のコンテナは測らない()
+    {
+        // 停止中に使用率は無い。問い合わせても意味の無い値しか返らない
+        AddDockerTarget();
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "exited", "Exited (137)", 1)];
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Empty(_docker.StatsRequests);
+    }
+
+    [Fact]
+    public async Task リソース使用率を外すと取りに行かない()
+    {
+        // 外しても呼び続けるなら、設定が効いていないのと同じ
+        AddDockerTarget();
+        SetEnabledMonitors(1, $"[\"{MonitorKinds.ContainerState}\"]");
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "running", "Up", 0)];
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Empty(_docker.StatsRequests);
+        Assert.DoesNotContain(_snapshots.Snapshots, s => s.Kind == "resource");
+    }
+
+    [Fact]
+    public async Task 状態もリソースも外せばコンテナ一覧すら取りに行かない()
+    {
+        AddDockerTarget();
+        SetEnabledMonitors(1, $"[\"{MonitorKinds.LogExcerpt}\"]");
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "running", "Up", 0)];
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Empty(_docker.CalledEndpoints);
+    }
+
+    [Fact]
+    public async Task 状態を外してもリソース使用率だけは収集できる()
+    {
+        // 使用率はコンテナごとの値なので、一覧の取得自体は避けられない。
+        // ただし状態のスナップショットとインシデント化は行わない。
+        AddDockerTarget();
+        SetEnabledMonitors(1, $"[\"{MonitorKinds.ResourceUsage}\"]");
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "exited", "Exited (137)", 1)];
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.DoesNotContain(_snapshots.Snapshots, s => s.Kind == "docker");
+        Assert.Single(_snapshots.Snapshots, s => s.Kind == "resource");
+        Assert.Empty(_incidents.Incidents);
+    }
+
+    [Fact]
+    public async Task しきい値を超えたらインシデントにする()
+    {
+        // これまでしきい値ルールは説明にしか使われず、自分では何も起こせなかった
+        AddDockerTarget();
+        AddMemoryPressureRule();
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "running", "Up", 0)];
+        _docker.Stats["c1"] = new ContainerStats(5.0, 95.0, 950, 1000);
+
+        await CreateSut().CollectAsync(1);
+
+        var incident = Assert.Single(_incidents.Incidents);
+        Assert.Equal("MemoryPressure", incident.Classification);
+        Assert.Equal("web", incident.Service);
+        Assert.Equal(IncidentSeverity.Medium, incident.Severity);
+    }
+
+    [Fact]
+    public async Task しきい値の範囲内ならインシデントにしない()
+    {
+        AddDockerTarget();
+        AddMemoryPressureRule();
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "running", "Up", 0)];
+        _docker.Stats["c1"] = new ContainerStats(5.0, 40.0, 400, 1000);
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Empty(_incidents.Incidents);
+    }
+
+    [Fact]
+    public async Task 使用率が取れなければインシデントにしない()
+    {
+        // 取れないことを正常とも異常とも決めつけない
+        AddDockerTarget();
+        AddMemoryPressureRule();
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "running", "Up", 0)];
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Empty(_incidents.Incidents);
+    }
+
+    [Fact]
+    public async Task 使用率が1件も取れなければ収集失敗として残す()
+    {
+        // 空の結果を正常な収集として記録すると、取れていないことが見えなくなる
+        AddDockerTarget();
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "running", "Up", 0)];
+
+        await CreateSut().CollectAsync(1);
+
+        var snapshot = Assert.Single(_snapshots.Snapshots, s => s.Kind == "resource");
+        Assert.Equal(CollectionStatus.Failed, snapshot.Status);
+        Assert.NotNull(snapshot.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task 稼働中コンテナが無ければ失敗にしない()
+    {
+        AddDockerTarget();
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "exited", "Exited (0)", 0)];
+
+        await CreateSut().CollectAsync(1);
+
+        var snapshot = Assert.Single(_snapshots.Snapshots, s => s.Kind == "resource");
+        Assert.Equal(CollectionStatus.Ok, snapshot.Status);
+    }
+
+    [Fact]
+    public async Task 測るコンテナ数に上限を設ける()
+    {
+        // 1件あたり約1秒かかるため、際限なく増やすと収集間隔を超える
+        AddDockerTarget();
+        _docker.Containers = Enumerable.Range(1, TargetCollectionService.MaxStatsContainers + 5)
+            .Select(i => new ContainerInfo($"c{i:00}", $"svc{i:00}", "nginx:1.27", "running", "Up", 0))
+            .ToList();
+        foreach (var container in _docker.Containers)
+        {
+            _docker.Stats[container.Id] = new ContainerStats(1.0, 1.0, 10, 1000);
+        }
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Equal(TargetCollectionService.MaxStatsContainers, _docker.StatsRequests.Count);
+
+        // 測らなかった件数を残す。黙って省くと「全部見ている」と誤解される
+        var snapshot = Assert.Single(_snapshots.Snapshots, s => s.Kind == "resource");
+        Assert.Contains("\"skipped\":5", snapshot.PayloadJson);
+    }
+
+    [Fact]
+    public async Task 同じコンテナの逼迫は1件のインシデントにまとめる()
+    {
+        AddDockerTarget();
+        AddMemoryPressureRule();
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "running", "Up", 0)];
+        _docker.Stats["c1"] = new ContainerStats(5.0, 95.0, 950, 1000);
+        var sut = CreateSut();
+
+        await sut.CollectAsync(1);
+        _time.Now = BaseTime.AddMinutes(5);
+        await sut.CollectAsync(1);
+
+        var incident = Assert.Single(_incidents.Incidents);
+        Assert.Equal(2, incident.OccurrenceCount);
+    }
+
+    [Fact]
+    public async Task 使用率の逼迫では自動復旧を試みない()
+    {
+        // 使用率が高いだけでは「何を再起動すれば直るか」が定まらない
+        AddDockerTarget();
+        AddMemoryPressureRule();
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "running", "Up", 0)];
+        _docker.Stats["c1"] = new ContainerStats(5.0, 95.0, 950, 1000);
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Empty(_autoRecovery.Calls);
     }
 }

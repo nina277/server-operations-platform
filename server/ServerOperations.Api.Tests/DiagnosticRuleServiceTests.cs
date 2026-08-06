@@ -354,7 +354,7 @@ public class DiagnosticRuleServiceTests
     private static CandidateRuleDto Candidate(
         long id = 0,
         string ruleType = "Threshold",
-        string conditionJson = """{"field":"diskUsagePercent","operator":">=","value":80}""",
+        string conditionJson = """{"field":"cpuUsagePercent","operator":">=","value":80}""",
         string severity = "Medium",
         string? recommendedActionId = null,
         int priority = 100) => new()
@@ -375,7 +375,7 @@ public class DiagnosticRuleServiceTests
     {
         var response = await CreateSut().TestAsync(new RuleTestRequest
         {
-            DiskUsagePercent = 85,
+            CpuUsagePercent = 85,
             CandidateRule = Candidate(),
         });
 
@@ -392,7 +392,7 @@ public class DiagnosticRuleServiceTests
     {
         var response = await CreateSut().TestAsync(new RuleTestRequest
         {
-            DiskUsagePercent = 10,
+            CpuUsagePercent = 10,
             CandidateRule = Candidate(),
         });
 
@@ -406,12 +406,12 @@ public class DiagnosticRuleServiceTests
         await sut.CreateAsync(Request(
             name: "保存済み",
             ruleType: "Threshold",
-            conditionJson: """{"field":"diskUsagePercent","operator":">=","value":50}""",
+            conditionJson: """{"field":"cpuUsagePercent","operator":">=","value":50}""",
             recommendedActionId: null));
 
         var response = await sut.TestAsync(new RuleTestRequest
         {
-            DiskUsagePercent = 85,
+            CpuUsagePercent = 85,
             CandidateRule = Candidate(),
         });
 
@@ -428,13 +428,13 @@ public class DiagnosticRuleServiceTests
         var saved = await sut.CreateAsync(Request(
             name: "ディスク",
             ruleType: "Threshold",
-            conditionJson: """{"field":"diskUsagePercent","operator":">=","value":90}""",
+            conditionJson: """{"field":"cpuUsagePercent","operator":">=","value":90}""",
             recommendedActionId: null));
 
         // 編集中は80%以上へ緩めた状態
         var response = await sut.TestAsync(new RuleTestRequest
         {
-            DiskUsagePercent = 85,
+            CpuUsagePercent = 85,
             CandidateRule = Candidate(id: saved.Id),
         });
 
@@ -451,13 +451,13 @@ public class DiagnosticRuleServiceTests
         var saved = await sut.CreateAsync(Request(
             name: "止めてある",
             ruleType: "Threshold",
-            conditionJson: """{"field":"diskUsagePercent","operator":">=","value":80}""",
+            conditionJson: """{"field":"cpuUsagePercent","operator":">=","value":80}""",
             recommendedActionId: null,
             isEnabled: false));
 
         var response = await sut.TestAsync(new RuleTestRequest
         {
-            DiskUsagePercent = 85,
+            CpuUsagePercent = 85,
             CandidateRule = Candidate(id: saved.Id),
         });
 
@@ -471,10 +471,10 @@ public class DiagnosticRuleServiceTests
         await sut.CreateAsync(Request(
             name: "保存済み",
             ruleType: "Threshold",
-            conditionJson: """{"field":"diskUsagePercent","operator":">=","value":80}""",
+            conditionJson: """{"field":"cpuUsagePercent","operator":">=","value":80}""",
             recommendedActionId: null));
 
-        var response = await sut.TestAsync(new RuleTestRequest { DiskUsagePercent = 85 });
+        var response = await sut.TestAsync(new RuleTestRequest { CpuUsagePercent = 85 });
 
         var match = Assert.Single(response.Matches);
         Assert.False(match.IsCandidate);
@@ -484,11 +484,11 @@ public class DiagnosticRuleServiceTests
     // 保存で拒否されるものは、試験でも拒否されなければならない。
     // 試験だけ緩いと「試験は通るが保存できない」条件が生まれ、確認の意味がなくなる。
     [InlineData("""{"field":"apiToken","operator":">=","value":1}""", "invalid_condition")]
-    [InlineData("""{"field":"diskUsagePercent","operator":"LIKE","value":1}""", "invalid_condition")]
+    [InlineData("""{"field":"cpuUsagePercent","operator":"LIKE","value":1}""", "invalid_condition")]
     public async Task 保存できない条件は試験でも拒否する(string conditionJson, string expectedCode)
     {
         var ex = await Assert.ThrowsAsync<AppException>(() => CreateSut().TestAsync(
-            new RuleTestRequest { DiskUsagePercent = 85, CandidateRule = Candidate(conditionJson: conditionJson) }));
+            new RuleTestRequest { CpuUsagePercent = 85, CandidateRule = Candidate(conditionJson: conditionJson) }));
 
         Assert.Equal(expectedCode, ex.Code);
     }
@@ -514,7 +514,7 @@ public class DiagnosticRuleServiceTests
         var ex = await Assert.ThrowsAsync<AppException>(() => CreateSut().TestAsync(
             new RuleTestRequest
             {
-                DiskUsagePercent = 85,
+                CpuUsagePercent = 85,
                 CandidateRule = Candidate(recommendedActionId: "EXEC_ARBITRARY_COMMAND"),
             }));
 
@@ -526,7 +526,7 @@ public class DiagnosticRuleServiceTests
     {
         await CreateSut().TestAsync(new RuleTestRequest
         {
-            DiskUsagePercent = 85,
+            CpuUsagePercent = 85,
             CandidateRule = Candidate(),
         });
 
@@ -542,11 +542,11 @@ public class DiagnosticRuleServiceTests
         var sut = CreateSut();
         await sut.CreateAsync(Request(
             ruleType: "Threshold",
-            conditionJson: """{"field":"diskUsagePercent","operator":">=","value":80}"""));
+            conditionJson: """{"field":"cpuUsagePercent","operator":">=","value":80}"""));
 
         var matches = new RuleEngine().Evaluate(
             await _rules.GetEnabledAsync(),
-            new DiagnosticContext { DiskUsagePercent = 85 });
+            new DiagnosticContext { CpuUsagePercent = 85 });
 
         var match = Assert.Single(matches);
         Assert.Contains("85", match.Rationale);

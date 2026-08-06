@@ -47,6 +47,7 @@ if (!string.IsNullOrWhiteSpace(connectionString))
     builder.Services.AddSingleton<IAdapterTemplateCatalog, AdapterTemplateCatalog>();
     builder.Services.AddSingleton<IRuleEngine, RuleEngine>();
     builder.Services.AddScoped<IDiagnosisService, DiagnosisService>();
+    builder.Services.AddScoped<IResourceThresholdDetector, ResourceThresholdDetector>();
 
     // AI Gateway(ルール診断と履歴再利用が失敗したときだけ呼ぶ)
     builder.Services.AddScoped<IAiUsageRecordRepository, AiUsageRecordRepository>();

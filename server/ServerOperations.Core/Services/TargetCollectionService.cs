@@ -27,11 +27,21 @@ public class TargetCollectionService(
     IAdapterTemplateCatalog templateCatalog,
     IDataProtectionProvider dataProtectionProvider,
     IDiagnosisService diagnosisService,
+    IResourceThresholdDetector resourceThresholdDetector,
     Notifications.INotificationService notificationService,
     IAutoRecoveryService autoRecoveryService,
     TimeProvider timeProvider,
     ILogger<TargetCollectionService> logger) : ITargetCollectionService
 {
+    /// <summary>
+    /// 1回の収集でリソース使用率を測るコンテナ数の上限。
+    /// 1件あたり約1秒かかるため、際限なく増やすと収集間隔を超える。
+    /// </summary>
+    public const int MaxStatsContainers = 20;
+
+    /// <summary>リソース使用率の同時取得数。対象のDocker APIへ一度に集中させない。</summary>
+    private const int StatsConcurrency = 4;
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     // TargetServiceと同じ目的文字列(暗号化した資格情報を復号するため一致必須)
@@ -101,7 +111,9 @@ public class TargetCollectionService(
         IReadOnlyList<string> enabledMonitors,
         CancellationToken ct)
     {
-        if (!enabledMonitors.Contains(MonitorKinds.ContainerState, StringComparer.Ordinal))
+        var collectState = enabledMonitors.Contains(MonitorKinds.ContainerState, StringComparer.Ordinal);
+        var collectResources = enabledMonitors.Contains(MonitorKinds.ResourceUsage, StringComparer.Ordinal);
+        if (!collectState && !collectResources)
         {
             return;
         }
@@ -109,8 +121,33 @@ public class TargetCollectionService(
         var collectLogs = enabledMonitors.Contains(MonitorKinds.LogExcerpt, StringComparer.Ordinal);
 
         var now = timeProvider.GetUtcNow().UtcDateTime;
+
+        // リソース使用率はコンテナごとの値のため、どのコンテナがあるかを知るのに一覧が要る。
+        // 状態の収集を外していても、使用率を取るならこの呼び出しは避けられない。
         var containers = await dockerAdapter.ListContainersAsync(endpoint, composeProject, ct);
 
+        if (collectState)
+        {
+            await CollectContainerStateAsync(
+                targetId, endpoint, containers, collectLogs, now, ct);
+        }
+
+        // 使用率の取得は1件あたり約1秒かかる。
+        // 停止コンテナの検出を待たせないよう、状態の収集を先に終わらせてから行う。
+        if (collectResources)
+        {
+            await CollectResourceUsageAsync(targetId, endpoint, containers, ct);
+        }
+    }
+
+    private async Task CollectContainerStateAsync(
+        long targetId,
+        string endpoint,
+        IReadOnlyList<ContainerInfo> containers,
+        bool collectLogs,
+        DateTime now,
+        CancellationToken ct)
+    {
         var payload = containers.Select(c => new
         {
             c.Name,
@@ -184,6 +221,116 @@ public class TargetCollectionService(
                 }, ct);
 
                 await TryAutoRecoverAsync(targetId, incident, diagnosis, ct);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 稼働中コンテナのCPU・メモリ使用率を収集し、しきい値ルールに当たったものをインシデント化する。
+    /// 使用率が取れなかったコンテナは記録に残すが、正常とは扱わない。
+    /// </summary>
+    private async Task CollectResourceUsageAsync(
+        long targetId, string endpoint, IReadOnlyList<ContainerInfo> containers, CancellationToken ct)
+    {
+        // 停止中のコンテナに使用率は無い。順序を固定するため名前で並べる
+        var running = containers
+            .Where(c => c.State.Equals("running", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(c => c.Name, StringComparer.Ordinal)
+            .ToList();
+
+        var measured = running.Take(MaxStatsContainers).ToList();
+        var skipped = running.Count - measured.Count;
+
+        var stats = new ContainerStats?[measured.Count];
+        using (var gate = new SemaphoreSlim(StatsConcurrency))
+        {
+            await Task.WhenAll(measured.Select(async (container, index) =>
+            {
+                await gate.WaitAsync(ct);
+                try
+                {
+                    stats[index] = await dockerAdapter.GetContainerStatsAsync(endpoint, container.Id, ct);
+                }
+                catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+                {
+                    // 1件の取得失敗で対象全体の収集を落とさない
+                    stats[index] = null;
+                }
+                finally
+                {
+                    gate.Release();
+                }
+            }));
+        }
+
+        var now = timeProvider.GetUtcNow().UtcDateTime;
+        var samples = new List<ContainerResourceSample>();
+        var payload = new List<object>(measured.Count);
+
+        for (var i = 0; i < measured.Count; i++)
+        {
+            var name = measured[i].Name;
+            var sample = stats[i];
+
+            payload.Add(new
+            {
+                name,
+                cpuUsagePercent = sample?.CpuUsagePercent,
+                memoryUsagePercent = sample?.MemoryUsagePercent,
+                memoryUsageBytes = sample?.MemoryUsageBytes,
+                memoryLimitBytes = sample?.MemoryLimitBytes,
+            });
+
+            if (sample is not null)
+            {
+                samples.Add(new ContainerResourceSample(name, sample));
+            }
+        }
+
+        // 測れたコンテナが1つも無い場合は失敗として残す。
+        // 空の結果を正常な収集として記録すると、取得できていないことが見えなくなる
+        var failed = measured.Count > 0 && samples.Count == 0;
+
+        await snapshots.AddAsync(new MetricSnapshot
+        {
+            TargetId = targetId,
+            CollectedAt = now,
+            Kind = "resource",
+            Status = failed ? CollectionStatus.Failed : CollectionStatus.Ok,
+            PayloadJson = JsonSerializer.Serialize(new
+            {
+                measured = measured.Count,
+                skipped,
+                containers = payload,
+            }, JsonOptions),
+            ErrorMessage = failed ? "リソース使用率を取得できませんでした。" : null,
+        }, ct);
+        await snapshots.SaveChangesAsync(ct);
+
+        if (skipped > 0)
+        {
+            logger.LogInformation(
+                "Resource usage measured for {Measured} of {Total} running containers on target {TargetId}.",
+                measured.Count, running.Count, targetId);
+        }
+
+        foreach (var alert in await resourceThresholdDetector.DetectAsync(samples, ct))
+        {
+            var (incident, shouldDiagnose) = await UpsertIncidentAsync(
+                targetId,
+                classification: alert.Rule.Classification,
+                service: alert.ContainerName,
+                title: $"コンテナ {alert.ContainerName}: {alert.Rule.Name}",
+                severity: alert.Rule.Severity,
+                logExcerpt: null,
+                ct);
+
+            if (shouldDiagnose)
+            {
+                // 診断も同じ文脈で行う。復旧はここでは試みない。
+                // 使用率が高いだけでは「何を再起動すれば直るか」が定まらず、
+                // 判断を人へ残すほうが安全である。
+                await diagnosisService.DiagnoseAsync(incident, alert.Context, ct);
             }
         }
     }

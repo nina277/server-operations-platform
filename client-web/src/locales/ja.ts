@@ -163,6 +163,8 @@ export default {
     collectionIntervalHelp:
       '空にすると全体の既定値で動きます。60〜3600秒の範囲で、等間隔に動かせる値へ丸められます。短くしすぎると対象への負荷が増えます。',
     stoppedContainers: '動いていないコンテナ数',
+    peakCpu: 'CPU使用率(最も高いコンテナ)',
+    peakMemory: 'メモリ使用率(最も高いコンテナ)',
     monitors: '行う収集',
     monitorsHelp:
       'この対象で実際に行う収集を選びます。外したものは呼び出しそのものを行いません。',
@@ -261,8 +263,8 @@ export default {
     containerState: 'コンテナの状態',
     containerName: 'コンテナ名',
     restartCount: '再起動回数',
+    cpuUsagePercent: 'CPU使用率(%)',
     memoryUsagePercent: 'メモリ使用率(%)',
-    diskUsagePercent: 'ディスク使用率(%)',
     httpStatus: 'HTTPステータス',
     httpLatencyMs: 'HTTP応答時間(ms)',
     logExcerpt: 'ログ抜粋',
@@ -433,6 +435,7 @@ export default {
   monitorKinds: {
     'container-state': 'コンテナの状態(一覧と停止の検知)',
     'log-excerpt': '停止コンテナのログ抜粋',
+    'resource-usage': 'CPU・メモリ使用率(稼働中のコンテナ)',
     'http-check': 'HTTPの死活と応答時間',
   },
   chart: {

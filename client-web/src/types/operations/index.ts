@@ -337,8 +337,8 @@ export interface RuleTestRequest {
   containerState?: string | null
   containerName?: string | null
   restartCount?: number | null
+  cpuUsagePercent?: number | null
   memoryUsagePercent?: number | null
-  diskUsagePercent?: number | null
   httpSuccess?: boolean | null
   httpStatus?: number | null
   httpLatencyMs?: number | null

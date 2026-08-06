@@ -21,17 +21,18 @@ public class AdapterTemplateCatalog : IAdapterTemplateCatalog
                     "endpoint", "Docker APIエンドポイント", TemplateInputType.Url, Required: true, Secret: false,
                     "Docker Socket Proxy(例: http://socket-proxy:2375)またはTLS保護済みAPI(https://host:2376)のURL。docker.sockの直接マウントは使用しない。"),
             ],
-            // cpu / memory は収集の実装が無い。案内に並べると
-            // 「設定したのに値が出ない」ことになるため載せない。
-            RecommendedMonitors: ["container-state", "restart-count", "log-excerpt"],
+            // ディスク使用率は載せない。Docker APIはホストの容量を返さないため収集できない。
+            RecommendedMonitors: ["container-state", "restart-count", "log-excerpt", "cpu", "memory"],
             InitialRules: ["ContainerStopped", "MemoryPressure", "DiskPressure"],
             AllowedOperations: ["RESTART_ALLOWED_CONTAINER", "START_ALLOWED_CONTAINER", "STOP_ALLOWED_CONTAINER"],
             Capabilities:
             [
                 "docker.containers.list", "docker.container.inspect", "docker.container.logs",
+                "docker.container.stats",
                 "docker.container.start", "docker.container.stop", "docker.container.restart",
             ],
-            CollectableMonitors: [MonitorKinds.ContainerState, MonitorKinds.LogExcerpt]),
+            CollectableMonitors:
+                [MonitorKinds.ContainerState, MonitorKinds.LogExcerpt, MonitorKinds.ResourceUsage]),
         new(
             Id: DockerComposeApp,
             Name: "Docker Compose Application",
@@ -45,15 +46,17 @@ public class AdapterTemplateCatalog : IAdapterTemplateCatalog
                     "composeProject", "Composeプロジェクト名", TemplateInputType.String, Required: true, Secret: false,
                     "監視対象のDocker Composeプロジェクト名(com.docker.compose.projectラベル)。"),
             ],
-            RecommendedMonitors: ["container-state", "restart-count", "log-excerpt"],
+            RecommendedMonitors: ["container-state", "restart-count", "log-excerpt", "cpu", "memory"],
             InitialRules: ["ContainerStopped"],
             AllowedOperations: ["RESTART_ALLOWED_CONTAINER", "START_ALLOWED_CONTAINER", "STOP_ALLOWED_CONTAINER"],
             Capabilities:
             [
                 "docker.containers.list", "docker.container.inspect", "docker.container.logs",
+                "docker.container.stats",
                 "docker.container.start", "docker.container.stop", "docker.container.restart",
             ],
-            CollectableMonitors: [MonitorKinds.ContainerState, MonitorKinds.LogExcerpt]),
+            CollectableMonitors:
+                [MonitorKinds.ContainerState, MonitorKinds.LogExcerpt, MonitorKinds.ResourceUsage]),
         new(
             Id: WebSite,
             Name: "Web Site / API",

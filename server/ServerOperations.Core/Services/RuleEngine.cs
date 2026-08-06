@@ -13,9 +13,9 @@ public record DiagnosticContext
 
     public int? RestartCount { get; init; }
 
-    public double? MemoryUsagePercent { get; init; }
+    public double? CpuUsagePercent { get; init; }
 
-    public double? DiskUsagePercent { get; init; }
+    public double? MemoryUsagePercent { get; init; }
 
     public bool? HttpSuccess { get; init; }
 
@@ -30,8 +30,8 @@ public record DiagnosticContext
         "containerState" => ContainerState,
         "containerName" => ContainerName,
         "restartCount" => RestartCount,
+        "cpuUsagePercent" => CpuUsagePercent,
         "memoryUsagePercent" => MemoryUsagePercent,
-        "diskUsagePercent" => DiskUsagePercent,
         "httpSuccess" => HttpSuccess,
         "httpStatus" => HttpStatus,
         "httpLatencyMs" => HttpLatencyMs,

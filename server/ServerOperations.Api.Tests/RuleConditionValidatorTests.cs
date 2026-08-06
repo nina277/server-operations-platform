@@ -49,6 +49,43 @@ public class RuleConditionValidatorTests
         Assert.Contains("logExcerpt", RuleConditionValidator.AllowedFields);
     }
 
+    [Fact]
+    public void 収集しない項目は参照できない()
+    {
+        // ディスク使用率はDocker APIから取れない。
+        // 参照できるままにすると、当たらないルールを作れてしまう。
+        // 画面にはルールが並ぶため監視できているように見え、実際には何も検知しない。
+        Assert.DoesNotContain("diskUsagePercent", RuleConditionValidator.AllowedFields);
+
+        var result = RuleConditionValidator.Validate(
+            DiagnosticRuleType.Threshold,
+            """{"field":"diskUsagePercent","operator":">=","value":90}""");
+
+        Assert.False(result.IsValid);
+    }
+
+    [Fact]
+    public void 参照できる項目はすべて評価できる()
+    {
+        // 一覧にあるのに評価側が知らない項目があると、常に一致しないルールになる
+        var context = new DiagnosticContext
+        {
+            ContainerState = "exited",
+            ContainerName = "web",
+            RestartCount = 1,
+            CpuUsagePercent = 1,
+            MemoryUsagePercent = 1,
+            HttpSuccess = false,
+            HttpStatus = 503,
+            HttpLatencyMs = 1,
+            LogExcerpt = "x",
+        };
+
+        Assert.All(
+            RuleConditionValidator.AllowedFields,
+            field => Assert.NotNull(context.GetField(field)));
+    }
+
     // --- State ---
 
     [Fact]

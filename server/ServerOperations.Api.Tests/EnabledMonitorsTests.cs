@@ -180,12 +180,26 @@ public class EnabledMonitorsTests
     [Fact]
     public void 案内する監視項目に収集の実装が無いものを並べない()
     {
-        // cpu / memory は収集の実装が無い。案内に載せると
+        // ディスク使用率はDocker APIから取れない。案内に載せると
         // 「設定したのに値が出ない」ことになる。
         foreach (var template in Catalog.GetAll())
         {
-            Assert.DoesNotContain("cpu", template.RecommendedMonitors);
-            Assert.DoesNotContain("memory", template.RecommendedMonitors);
+            Assert.DoesNotContain("disk", template.RecommendedMonitors);
+        }
+    }
+
+    [Fact]
+    public void CPUとメモリを案内するテンプレートは使用率を収集できる()
+    {
+        // 案内した項目には、それを取りに行く収集の単位が必ずある
+        var advertising = Catalog.GetAll()
+            .Where(t => t.RecommendedMonitors.Contains("cpu") || t.RecommendedMonitors.Contains("memory"))
+            .ToList();
+
+        Assert.NotEmpty(advertising);
+        foreach (var template in advertising)
+        {
+            Assert.Contains(MonitorKinds.ResourceUsage, template.CollectableMonitors);
         }
     }
 }

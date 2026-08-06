@@ -19,8 +19,16 @@ public static class MonitorKinds
     /// </summary>
     public const string LogExcerpt = "log-excerpt";
 
+    /// <summary>
+    /// 稼働中コンテナのCPU・メモリ使用率。
+    /// コンテナごとに別のAPI呼び出しが要り、1件あたり約1秒かかる。
+    /// 対象への負荷が他の収集より大きいため、単独で外せるようにしておく。
+    /// </summary>
+    public const string ResourceUsage = "resource-usage";
+
     /// <summary>HTTPヘルスチェック(死活と応答時間)。</summary>
     public const string HttpCheck = "http-check";
 
-    public static readonly IReadOnlyList<string> All = [ContainerState, LogExcerpt, HttpCheck];
+    public static readonly IReadOnlyList<string> All =
+        [ContainerState, LogExcerpt, ResourceUsage, HttpCheck];
 }

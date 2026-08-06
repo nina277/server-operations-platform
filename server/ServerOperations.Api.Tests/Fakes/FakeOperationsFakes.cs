@@ -76,6 +76,19 @@ public class FakeDockerAdapter : IDockerAdapter
         return Task.FromResult<IReadOnlyList<ContainerInfo>>(Containers);
     }
 
+    /// <summary>コンテナIDごとに返す使用率。指定が無ければ未取得(null)として返す。</summary>
+    public Dictionary<string, ContainerStats> Stats { get; } = [];
+
+    /// <summary>使用率を取りに行った回数。外したときに呼ばれないことを確かめるのに使う。</summary>
+    public List<string> StatsRequests { get; } = [];
+
+    public Task<ContainerStats?> GetContainerStatsAsync(
+        string endpoint, string containerId, CancellationToken ct = default)
+    {
+        StatsRequests.Add(containerId);
+        return Task.FromResult(Stats.GetValueOrDefault(containerId));
+    }
+
     /// <summary>ログを取りに行った回数。外したときに呼ばれないことを確かめるのに使う。</summary>
     public List<string> LogRequests { get; } = [];
 

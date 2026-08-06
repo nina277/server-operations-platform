@@ -164,6 +164,8 @@ export default {
     collectionIntervalHelp:
       'Leave empty to use the system default. Values are clamped to 60-3600 seconds and rounded to an interval that runs evenly. Shorter intervals put more load on the target.',
     stoppedContainers: 'Containers not running',
+    peakCpu: 'CPU usage (highest container)',
+    peakMemory: 'Memory usage (highest container)',
     monitors: 'Collection to perform',
     monitorsHelp:
       'Choose what is actually collected for this target. Unchecked items are not requested at all.',
@@ -262,8 +264,8 @@ export default {
     containerState: 'Container state',
     containerName: 'Container name',
     restartCount: 'Restart count',
+    cpuUsagePercent: 'CPU usage (%)',
     memoryUsagePercent: 'Memory usage (%)',
-    diskUsagePercent: 'Disk usage (%)',
     httpStatus: 'HTTP status',
     httpLatencyMs: 'HTTP latency (ms)',
     logExcerpt: 'Log excerpt',
@@ -435,6 +437,7 @@ export default {
   monitorKinds: {
     'container-state': 'Container state (list and stop detection)',
     'log-excerpt': 'Log excerpt from stopped containers',
+    'resource-usage': 'CPU and memory usage (running containers)',
     'http-check': 'HTTP liveness and latency',
   },
   chart: {

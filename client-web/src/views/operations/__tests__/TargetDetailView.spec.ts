@@ -322,6 +322,55 @@ describe('TargetDetailView', () => {
     expect(wrapper.find('svg').exists()).toBe(true)
   })
 
+  it('使用率は最も高いコンテナの値を描く', async () => {
+    // 平均にすると、1つが上限に張り付いていても他が空いていれば低く見え、逼迫が消える
+    fetchTargetMetrics.mockResolvedValue([
+      {
+        id: 1,
+        collectedAt: '2026-07-10T12:00:00Z',
+        kind: 'resource',
+        status: 'Ok',
+        payloadJson: JSON.stringify({
+          measured: 2,
+          skipped: 0,
+          containers: [
+            { name: 'web', cpuUsagePercent: 5, memoryUsagePercent: 12 },
+            { name: 'db', cpuUsagePercent: 88, memoryUsagePercent: 94 },
+          ],
+        }),
+        errorMessage: null,
+      },
+    ])
+
+    const wrapper = await mountView()
+
+    expect(wrapper.get('[data-testid="cpu-chart"]').text()).toContain('88')
+    expect(wrapper.get('[data-testid="memory-chart"]').text()).toContain('94')
+  })
+
+  it('使用率が取れていない収集は点にしない', async () => {
+    // 0として描くと「使っていない」に見え、取れていないことが隠れる
+    fetchTargetMetrics.mockResolvedValue([
+      {
+        id: 1,
+        collectedAt: '2026-07-10T12:00:00Z',
+        kind: 'resource',
+        status: 'Failed',
+        payloadJson: JSON.stringify({
+          measured: 1,
+          skipped: 0,
+          containers: [{ name: 'web', cpuUsagePercent: null, memoryUsagePercent: null }],
+        }),
+        errorMessage: 'リソース使用率を取得できませんでした。',
+      },
+    ])
+
+    const wrapper = await mountView()
+
+    expect(wrapper.find('[data-testid="cpu-chart"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="memory-chart"]').exists()).toBe(false)
+  })
+
   it('壊れた収集値が混ざっても他の点は描く', async () => {
     // 1件のJSONが壊れているだけでグラフ全体が消えるのは困る
     fetchTargetMetrics.mockResolvedValue([
