@@ -177,29 +177,36 @@ public class EnabledMonitorsTests
         Assert.All(Catalog.GetAll(), t => Assert.NotEmpty(t.CollectableMonitors));
     }
 
-    [Fact]
-    public void 案内する監視項目に収集の実装が無いものを並べない()
+    /// <summary>
+    /// 案内に載せる監視項目と、それを実際に取りに行く収集の対応。
+    /// ここに無い項目を案内へ足すと下の試験が落ちる。
+    /// </summary>
+    private static readonly Dictionary<string, string> BackedBy = new()
     {
-        // ディスク使用率はDocker APIから取れない。案内に載せると
-        // 「設定したのに値が出ない」ことになる。
+        ["container-state"] = MonitorKinds.ContainerState,
+        ["restart-count"] = MonitorKinds.ContainerState,
+        ["log-excerpt"] = MonitorKinds.LogExcerpt,
+        ["cpu"] = MonitorKinds.ResourceUsage,
+        ["memory"] = MonitorKinds.ResourceUsage,
+        ["disk"] = MonitorKinds.DiskUsage,
+        ["http-status"] = MonitorKinds.HttpCheck,
+        ["http-latency"] = MonitorKinds.HttpCheck,
+    };
+
+    [Fact]
+    public void 案内する監視項目には収集の手段がある()
+    {
+        // 案内に載せて収集できないと「設定したのに値が出ない」ことになる。
+        // 過去に cpu / memory / disk がこの状態で並んでいた。
         foreach (var template in Catalog.GetAll())
         {
-            Assert.DoesNotContain("disk", template.RecommendedMonitors);
-        }
-    }
-
-    [Fact]
-    public void CPUとメモリを案内するテンプレートは使用率を収集できる()
-    {
-        // 案内した項目には、それを取りに行く収集の単位が必ずある
-        var advertising = Catalog.GetAll()
-            .Where(t => t.RecommendedMonitors.Contains("cpu") || t.RecommendedMonitors.Contains("memory"))
-            .ToList();
-
-        Assert.NotEmpty(advertising);
-        foreach (var template in advertising)
-        {
-            Assert.Contains(MonitorKinds.ResourceUsage, template.CollectableMonitors);
+            foreach (var monitor in template.RecommendedMonitors)
+            {
+                Assert.True(
+                    BackedBy.TryGetValue(monitor, out var kind),
+                    $"案内にある {monitor} を取りに行く収集がありません。");
+                Assert.Contains(kind!, template.CollectableMonitors);
+            }
         }
     }
 }

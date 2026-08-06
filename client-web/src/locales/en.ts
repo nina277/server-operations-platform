@@ -166,6 +166,7 @@ export default {
     stoppedContainers: 'Containers not running',
     peakCpu: 'CPU usage (highest container)',
     peakMemory: 'Memory usage (highest container)',
+    peakDisk: 'Disk usage (fullest filesystem)',
     monitors: 'Collection to perform',
     monitorsHelp:
       'Choose what is actually collected for this target. Unchecked items are not requested at all.',
@@ -266,6 +267,7 @@ export default {
     restartCount: 'Restart count',
     cpuUsagePercent: 'CPU usage (%)',
     memoryUsagePercent: 'Memory usage (%)',
+    diskUsagePercent: 'Disk usage (%)',
     httpStatus: 'HTTP status',
     httpLatencyMs: 'HTTP latency (ms)',
     logExcerpt: 'Log excerpt',
@@ -438,6 +440,7 @@ export default {
     'container-state': 'Container state (list and stop detection)',
     'log-excerpt': 'Log excerpt from stopped containers',
     'resource-usage': 'CPU and memory usage (running containers)',
+    'disk-usage': 'Host disk usage (needs host metrics URL)',
     'http-check': 'HTTP liveness and latency',
   },
   chart: {

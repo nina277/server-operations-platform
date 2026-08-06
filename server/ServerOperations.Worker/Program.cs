@@ -98,8 +98,12 @@ if (!string.IsNullOrWhiteSpace(connectionString))
     builder.Services.AddHttpClient(HttpAdapter.HttpClientName, client =>
             client.Timeout = TimeSpan.FromSeconds(65))
         .ConfigurePrimaryHttpMessageHandler(AdapterHttpHandlerFactory.CreateGuardedHandler);
+    builder.Services.AddHttpClient(HostMetricsAdapter.HttpClientName, client =>
+            client.Timeout = TimeSpan.FromSeconds(15))
+        .ConfigurePrimaryHttpMessageHandler(AdapterHttpHandlerFactory.CreateGuardedHandler);
     builder.Services.AddScoped<IDockerAdapter, DockerAdapter>();
     builder.Services.AddScoped<IHttpAdapter, HttpAdapter>();
+    builder.Services.AddScoped<IHostMetricsAdapter, HostMetricsAdapter>();
 }
 
 if (hangfireEnabled)

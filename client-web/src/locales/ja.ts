@@ -165,6 +165,7 @@ export default {
     stoppedContainers: '動いていないコンテナ数',
     peakCpu: 'CPU使用率(最も高いコンテナ)',
     peakMemory: 'メモリ使用率(最も高いコンテナ)',
+    peakDisk: 'ディスク使用率(最も高いファイルシステム)',
     monitors: '行う収集',
     monitorsHelp:
       'この対象で実際に行う収集を選びます。外したものは呼び出しそのものを行いません。',
@@ -265,6 +266,7 @@ export default {
     restartCount: '再起動回数',
     cpuUsagePercent: 'CPU使用率(%)',
     memoryUsagePercent: 'メモリ使用率(%)',
+    diskUsagePercent: 'ディスク使用率(%)',
     httpStatus: 'HTTPステータス',
     httpLatencyMs: 'HTTP応答時間(ms)',
     logExcerpt: 'ログ抜粋',
@@ -436,6 +438,7 @@ export default {
     'container-state': 'コンテナの状態(一覧と停止の検知)',
     'log-excerpt': '停止コンテナのログ抜粋',
     'resource-usage': 'CPU・メモリ使用率(稼働中のコンテナ)',
+    'disk-usage': 'ホストのディスク使用率(要ホストメトリクスURL)',
     'http-check': 'HTTPの死活と応答時間',
   },
   chart: {

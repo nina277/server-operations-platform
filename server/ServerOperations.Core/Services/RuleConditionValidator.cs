@@ -26,7 +26,6 @@ public static class RuleConditionValidator
     /// 収集しない項目を並べると、当たらないルールを作れてしまう。
     /// 画面上はルールが存在するため監視できているように見え、
     /// 実際には何も検知しないという最も悪い形になる。
-    /// ディスク使用率(diskUsagePercent)を外したのはこの理由による。
     /// </summary>
     public static readonly IReadOnlyList<string> AllowedFields =
     [
@@ -35,6 +34,7 @@ public static class RuleConditionValidator
         "restartCount",
         "cpuUsagePercent",
         "memoryUsagePercent",
+        "diskUsagePercent",
         "httpSuccess",
         "httpStatus",
         "httpLatencyMs",

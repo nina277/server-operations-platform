@@ -17,6 +17,9 @@ public record DiagnosticContext
 
     public double? MemoryUsagePercent { get; init; }
 
+    /// <summary>ホストのファイルシステム使用率。node_exporterを設定した対象でのみ入る。</summary>
+    public double? DiskUsagePercent { get; init; }
+
     public bool? HttpSuccess { get; init; }
 
     public int? HttpStatus { get; init; }
@@ -32,6 +35,7 @@ public record DiagnosticContext
         "restartCount" => RestartCount,
         "cpuUsagePercent" => CpuUsagePercent,
         "memoryUsagePercent" => MemoryUsagePercent,
+        "diskUsagePercent" => DiskUsagePercent,
         "httpSuccess" => HttpSuccess,
         "httpStatus" => HttpStatus,
         "httpLatencyMs" => HttpLatencyMs,

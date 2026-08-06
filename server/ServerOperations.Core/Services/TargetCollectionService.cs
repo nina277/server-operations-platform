@@ -24,6 +24,7 @@ public class TargetCollectionService(
     IIncidentLogRepository incidentLogs,
     IDockerAdapter dockerAdapter,
     IHttpAdapter httpAdapter,
+    IHostMetricsAdapter hostMetricsAdapter,
     IAdapterTemplateCatalog templateCatalog,
     IDataProtectionProvider dataProtectionProvider,
     IDiagnosisService diagnosisService,
@@ -78,6 +79,15 @@ public class TargetCollectionService(
                 case "docker-host":
                     await CollectDockerAsync(
                         target.Id, settings["endpoint"], composeProject: null, enabled, ct);
+
+                    // ホストのディスク使用率はDocker APIでは取れないため、別の口から取る。
+                    // 未設定なら何もしない(設定していない対象で失敗を積み上げない)。
+                    if (enabled.Contains(MonitorKinds.DiskUsage, StringComparer.Ordinal))
+                    {
+                        await CollectDiskUsageAsync(
+                            target.Id, settings.GetValueOrDefault("metricsEndpoint"), ct);
+                    }
+
                     break;
                 case "docker-compose-app":
                     await CollectDockerAsync(
@@ -314,13 +324,13 @@ public class TargetCollectionService(
                 measured.Count, running.Count, targetId);
         }
 
-        foreach (var alert in await resourceThresholdDetector.DetectAsync(samples, ct))
+        foreach (var alert in await resourceThresholdDetector.DetectContainerAsync(samples, ct))
         {
             var (incident, shouldDiagnose) = await UpsertIncidentAsync(
                 targetId,
                 classification: alert.Rule.Classification,
-                service: alert.ContainerName,
-                title: $"コンテナ {alert.ContainerName}: {alert.Rule.Name}",
+                service: alert.Subject,
+                title: $"コンテナ {alert.Subject}: {alert.Rule.Name}",
                 severity: alert.Rule.Severity,
                 logExcerpt: null,
                 ct);
@@ -330,6 +340,66 @@ public class TargetCollectionService(
                 // 診断も同じ文脈で行う。復旧はここでは試みない。
                 // 使用率が高いだけでは「何を再起動すれば直るか」が定まらず、
                 // 判断を人へ残すほうが安全である。
+                await diagnosisService.DiagnoseAsync(incident, alert.Context, ct);
+            }
+        }
+    }
+
+    /// <summary>
+    /// ホストのファイルシステム使用率を収集し、しきい値ルールに当たったものをインシデント化する。
+    /// 接続先が未設定なら何もしない。
+    /// </summary>
+    private async Task CollectDiskUsageAsync(long targetId, string? metricsUrl, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(metricsUrl))
+        {
+            // 設定していない対象で毎回失敗を積み上げない。
+            // 「取れていない」ことは監視項目の設定を見れば分かる
+            return;
+        }
+
+        var now = timeProvider.GetUtcNow().UtcDateTime;
+        var filesystems = await hostMetricsAdapter.GetFilesystemUsageAsync(metricsUrl, ct);
+
+        // 1つも読めなかった場合は失敗として残す。
+        // 空の結果を正常な収集として記録すると、取れていないことが見えなくなる
+        var failed = filesystems.Count == 0;
+
+        await snapshots.AddAsync(new MetricSnapshot
+        {
+            TargetId = targetId,
+            CollectedAt = now,
+            Kind = "disk",
+            Status = failed ? CollectionStatus.Failed : CollectionStatus.Ok,
+            PayloadJson = JsonSerializer.Serialize(new
+            {
+                filesystems = filesystems.Select(f => new
+                {
+                    mountpoint = f.Mountpoint,
+                    sizeBytes = f.SizeBytes,
+                    availableBytes = f.AvailableBytes,
+                    usagePercent = f.UsagePercent,
+                }),
+            }, JsonOptions),
+            ErrorMessage = failed ? "ホストのディスク使用率を取得できませんでした。" : null,
+        }, ct);
+        await snapshots.SaveChangesAsync(ct);
+
+        foreach (var alert in await resourceThresholdDetector.DetectFilesystemAsync(filesystems, ct))
+        {
+            var (incident, shouldDiagnose) = await UpsertIncidentAsync(
+                targetId,
+                classification: alert.Rule.Classification,
+                service: alert.Subject,
+                title: $"{alert.Subject}: {alert.Rule.Name}",
+                severity: alert.Rule.Severity,
+                logExcerpt: null,
+                ct);
+
+            if (shouldDiagnose)
+            {
+                // ディスク逼迫に対して自動でできる安全な操作は無い。
+                // コンテナを再起動しても容量は戻らず、消してよいものを決められるのは人だけ。
                 await diagnosisService.DiagnoseAsync(incident, alert.Context, ct);
             }
         }
@@ -420,6 +490,9 @@ public class TargetCollectionService(
                 var diagnosis = await diagnosisService.DiagnoseAsync(incident, new DiagnosticContext
                 {
                     HttpSuccess = false,
+                    // 応答が返らなかった場合はステータスコードが無い。
+                    // 0で埋めると「0番のステータス」を条件にしたルールが当たってしまう
+                    HttpStatus = result.StatusCode,
                     HttpLatencyMs = result.LatencyMs,
                     LogExcerpt = result.Message,
                 }, ct);

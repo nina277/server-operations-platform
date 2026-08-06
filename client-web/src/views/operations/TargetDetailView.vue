@@ -157,6 +157,27 @@ function peakResource(field: 'cpuUsagePercent' | 'memoryUsagePercent'): ChartPoi
 const cpuPoints = computed(() => peakResource('cpuUsagePercent'))
 const memoryPoints = computed(() => peakResource('memoryUsagePercent'))
 
+/**
+ * ホストのディスク使用率。最も埋まっているファイルシステムの値を追う。
+ *
+ * ディスクはメモリと違って自然には減らないため、傾きが見えることに意味がある。
+ * 「いつ満杯になるか」は、しきい値の一発判定より早く気づける。
+ */
+const diskPoints = computed(() =>
+  seriesFrom('disk', (payload) => {
+    const filesystems = (payload as { filesystems?: unknown }).filesystems
+    if (!Array.isArray(filesystems)) {
+      return null
+    }
+
+    const values = filesystems
+      .map((f) => (f as { usagePercent?: unknown }).usagePercent)
+      .filter((v): v is number => typeof v === 'number')
+
+    return values.length === 0 ? null : Math.max(...values)
+  }),
+)
+
 /** テンプレートのうち秘密でない入力。値は設定画面で編集できる。 */
 async function handlePreviewDelete(): Promise<void> {
   deleting.value = true
@@ -533,6 +554,13 @@ async function handleHealthCheck(): Promise<void> {
             :points="memoryPoints"
             unit="%"
             data-testid="memory-chart"
+          />
+          <MetricChart
+            v-if="diskPoints.length > 0"
+            :title="t('targets.peakDisk')"
+            :points="diskPoints"
+            unit="%"
+            data-testid="disk-chart"
           />
 
           <div v-if="metrics.length > 0" class="table-scroll">

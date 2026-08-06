@@ -163,8 +163,14 @@ public static class ServiceCollectionExtensions
                 client.Timeout = TimeSpan.FromSeconds(65);
             })
             .ConfigurePrimaryHttpMessageHandler(CreateGuardedHandler);
+        services.AddHttpClient(HostMetricsAdapter.HttpClientName, client =>
+            {
+                client.Timeout = TimeSpan.FromSeconds(15);
+            })
+            .ConfigurePrimaryHttpMessageHandler(CreateGuardedHandler);
         services.AddScoped<IDockerAdapter, DockerAdapter>();
         services.AddScoped<IHttpAdapter, HttpAdapter>();
+        services.AddScoped<IHostMetricsAdapter, HostMetricsAdapter>();
 
         return services;
     }

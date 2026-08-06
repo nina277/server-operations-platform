@@ -48,10 +48,10 @@ public class ResourceThresholdDetectorTests
     {
         AddRule("メモリ逼迫", """{"field":"memoryUsagePercent","operator":">=","value":90}""");
 
-        var alerts = await CreateSut().DetectAsync([Sample(memory: 95)]);
+        var alerts = await CreateSut().DetectContainerAsync([Sample(memory: 95)]);
 
         var alert = Assert.Single(alerts);
-        Assert.Equal("web", alert.ContainerName);
+        Assert.Equal("web", alert.Subject);
         Assert.Equal("メモリ逼迫", alert.Rule.Name);
         Assert.Contains("95", alert.Rationale);
     }
@@ -61,7 +61,7 @@ public class ResourceThresholdDetectorTests
     {
         AddRule("メモリ逼迫", """{"field":"memoryUsagePercent","operator":">=","value":90}""");
 
-        var alerts = await CreateSut().DetectAsync([Sample(memory: 40)]);
+        var alerts = await CreateSut().DetectContainerAsync([Sample(memory: 40)]);
 
         Assert.Empty(alerts);
     }
@@ -74,7 +74,7 @@ public class ResourceThresholdDetectorTests
         AddRule("メモリ逼迫", """{"field":"memoryUsagePercent","operator":">=","value":90}""");
         AddRule("メモリ余裕", """{"field":"memoryUsagePercent","operator":"<","value":90}""", priority: 20);
 
-        var alerts = await CreateSut().DetectAsync([Sample(memory: null)]);
+        var alerts = await CreateSut().DetectContainerAsync([Sample(memory: null)]);
 
         Assert.Empty(alerts);
     }
@@ -85,7 +85,7 @@ public class ResourceThresholdDetectorTests
         // 片方が取れなかっただけで、取れたほうまで見ないのは行き過ぎ
         AddRule("CPU逼迫", """{"field":"cpuUsagePercent","operator":">=","value":80}""");
 
-        var alerts = await CreateSut().DetectAsync([Sample(cpu: 95, memory: null)]);
+        var alerts = await CreateSut().DetectContainerAsync([Sample(cpu: 95, memory: null)]);
 
         Assert.Single(alerts);
     }
@@ -101,7 +101,7 @@ public class ResourceThresholdDetectorTests
             """{"field":"containerName","equalsAny":["web"]}""",
             ruleType: DiagnosticRuleType.State);
 
-        var alerts = await CreateSut().DetectAsync([Sample(name: "web", memory: 10)]);
+        var alerts = await CreateSut().DetectContainerAsync([Sample(name: "web", memory: 10)]);
 
         Assert.Empty(alerts);
     }
@@ -115,7 +115,7 @@ public class ResourceThresholdDetectorTests
             """{"field":"logExcerpt","pattern":".*"}""",
             ruleType: DiagnosticRuleType.Regex);
 
-        var alerts = await CreateSut().DetectAsync([Sample(memory: 10)]);
+        var alerts = await CreateSut().DetectContainerAsync([Sample(memory: 10)]);
 
         Assert.Empty(alerts);
     }
@@ -128,7 +128,7 @@ public class ResourceThresholdDetectorTests
             """{"field":"memoryUsagePercent","operator":">=","value":90}""",
             isEnabled: false);
 
-        var alerts = await CreateSut().DetectAsync([Sample(memory: 95)]);
+        var alerts = await CreateSut().DetectContainerAsync([Sample(memory: 95)]);
 
         Assert.Empty(alerts);
     }
@@ -139,7 +139,7 @@ public class ResourceThresholdDetectorTests
         AddRule("重い", """{"field":"memoryUsagePercent","operator":">=","value":95}""", priority: 1);
         AddRule("軽い", """{"field":"memoryUsagePercent","operator":">=","value":90}""", priority: 50);
 
-        var alerts = await CreateSut().DetectAsync([Sample(memory: 99)]);
+        var alerts = await CreateSut().DetectContainerAsync([Sample(memory: 99)]);
 
         var alert = Assert.Single(alerts);
         Assert.Equal("重い", alert.Rule.Name);
@@ -150,11 +150,11 @@ public class ResourceThresholdDetectorTests
     {
         AddRule("メモリ逼迫", """{"field":"memoryUsagePercent","operator":">=","value":90}""");
 
-        var alerts = await CreateSut().DetectAsync(
+        var alerts = await CreateSut().DetectContainerAsync(
             [Sample("web", memory: 95), Sample("db", memory: 99), Sample("cache", memory: 10)]);
 
         Assert.Equal(2, alerts.Count);
-        Assert.Equal(["web", "db"], alerts.Select(a => a.ContainerName));
+        Assert.Equal(["web", "db"], alerts.Select(a => a.Subject));
     }
 
     [Fact]
@@ -162,7 +162,7 @@ public class ResourceThresholdDetectorTests
     {
         AddRule("メモリ逼迫", """{"field":"memoryUsagePercent","operator":">=","value":90}""");
 
-        var alerts = await CreateSut().DetectAsync([]);
+        var alerts = await CreateSut().DetectContainerAsync([]);
 
         Assert.Empty(alerts);
     }

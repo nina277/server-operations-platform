@@ -58,6 +58,8 @@ public record RuleTestRequest
 
     public double? MemoryUsagePercent { get; init; }
 
+    public double? DiskUsagePercent { get; init; }
+
     public bool? HttpSuccess { get; init; }
 
     public int? HttpStatus { get; init; }
@@ -80,6 +82,7 @@ public record RuleTestRequest
         RestartCount = RestartCount,
         CpuUsagePercent = CpuUsagePercent,
         MemoryUsagePercent = MemoryUsagePercent,
+        DiskUsagePercent = DiskUsagePercent,
         HttpSuccess = HttpSuccess,
         HttpStatus = HttpStatus,
         HttpLatencyMs = HttpLatencyMs,

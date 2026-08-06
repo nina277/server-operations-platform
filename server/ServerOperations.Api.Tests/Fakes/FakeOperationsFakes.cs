@@ -111,6 +111,21 @@ public class FakeDockerAdapter : IDockerAdapter
     }
 }
 
+public class FakeHostMetricsAdapter : IHostMetricsAdapter
+{
+    public List<FilesystemUsage> Filesystems { get; set; } = [];
+
+    /// <summary>問い合わせたURL。設定していない対象で呼ばないことを確かめるのに使う。</summary>
+    public List<string> CalledUrls { get; } = [];
+
+    public Task<IReadOnlyList<FilesystemUsage>> GetFilesystemUsageAsync(
+        string metricsUrl, CancellationToken ct = default)
+    {
+        CalledUrls.Add(metricsUrl);
+        return Task.FromResult<IReadOnlyList<FilesystemUsage>>(Filesystems);
+    }
+}
+
 public class FakeHttpAdapter : IHttpAdapter
 {
     public AdapterConnectionResult Result { get; set; } = new(true, "HTTP 200 を受信しました(期待どおり)。", 34);

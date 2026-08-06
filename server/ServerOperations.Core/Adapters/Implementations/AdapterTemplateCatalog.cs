@@ -20,9 +20,11 @@ public class AdapterTemplateCatalog : IAdapterTemplateCatalog
                 new TemplateInput(
                     "endpoint", "Docker APIエンドポイント", TemplateInputType.Url, Required: true, Secret: false,
                     "Docker Socket Proxy(例: http://socket-proxy:2375)またはTLS保護済みAPI(https://host:2376)のURL。docker.sockの直接マウントは使用しない。"),
+                new TemplateInput(
+                    "metricsEndpoint", "ホストメトリクスURL", TemplateInputType.Url, Required: false, Secret: false,
+                    "node_exporter のURL(例: http://192.168.1.20:9100/metrics)。設定するとホストのディスク使用率を収集する。読み取りのみで、ホスト上では何も実行しない。"),
             ],
-            // ディスク使用率は載せない。Docker APIはホストの容量を返さないため収集できない。
-            RecommendedMonitors: ["container-state", "restart-count", "log-excerpt", "cpu", "memory"],
+            RecommendedMonitors: ["container-state", "restart-count", "log-excerpt", "cpu", "memory", "disk"],
             InitialRules: ["ContainerStopped", "MemoryPressure", "DiskPressure"],
             AllowedOperations: ["RESTART_ALLOWED_CONTAINER", "START_ALLOWED_CONTAINER", "STOP_ALLOWED_CONTAINER"],
             Capabilities:
@@ -30,9 +32,13 @@ public class AdapterTemplateCatalog : IAdapterTemplateCatalog
                 "docker.containers.list", "docker.container.inspect", "docker.container.logs",
                 "docker.container.stats",
                 "docker.container.start", "docker.container.stop", "docker.container.restart",
+                "host.metrics.read",
             ],
             CollectableMonitors:
-                [MonitorKinds.ContainerState, MonitorKinds.LogExcerpt, MonitorKinds.ResourceUsage]),
+            [
+                MonitorKinds.ContainerState, MonitorKinds.LogExcerpt,
+                MonitorKinds.ResourceUsage, MonitorKinds.DiskUsage,
+            ]),
         new(
             Id: DockerComposeApp,
             Name: "Docker Compose Application",

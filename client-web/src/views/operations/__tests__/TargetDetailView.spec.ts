@@ -371,6 +371,28 @@ describe('TargetDetailView', () => {
     expect(wrapper.find('[data-testid="memory-chart"]').exists()).toBe(false)
   })
 
+  it('ディスクは最も埋まっているファイルシステムの値を描く', async () => {
+    fetchTargetMetrics.mockResolvedValue([
+      {
+        id: 1,
+        collectedAt: '2026-07-10T12:00:00Z',
+        kind: 'disk',
+        status: 'Ok',
+        payloadJson: JSON.stringify({
+          filesystems: [
+            { mountpoint: '/', sizeBytes: 1000, availableBytes: 400, usagePercent: 60 },
+            { mountpoint: '/mnt/data', sizeBytes: 1000, availableBytes: 30, usagePercent: 97 },
+          ],
+        }),
+        errorMessage: null,
+      },
+    ])
+
+    const wrapper = await mountView()
+
+    expect(wrapper.get('[data-testid="disk-chart"]').text()).toContain('97')
+  })
+
   it('壊れた収集値が混ざっても他の点は描く', async () => {
     // 1件のJSONが壊れているだけでグラフ全体が消えるのは困る
     fetchTargetMetrics.mockResolvedValue([

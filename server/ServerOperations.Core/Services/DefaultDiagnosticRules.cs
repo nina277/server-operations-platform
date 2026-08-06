@@ -75,6 +75,19 @@ public static class DefaultDiagnosticRules
             CreatedAt = nowUtc,
             UpdatedAt = nowUtc,
         },
+        new DiagnosticRule
+        {
+            Name = "ディスク逼迫(使用率)",
+            Classification = "DiskPressure",
+            RuleType = DiagnosticRuleType.Threshold,
+            ConditionJson = """{"field":"diskUsagePercent","operator":">=","value":85}""",
+            Severity = IncidentSeverity.Medium,
+            RecommendedActionId = null,
+            Priority = 20,
+            RationaleTemplate = "ディスク使用率が {value}% に達しています(判定条件: {expected})。",
+            CreatedAt = nowUtc,
+            UpdatedAt = nowUtc,
+        },
     ];
 
     // CPU使用率の初期ルールは置かない。
@@ -82,7 +95,7 @@ public static class DefaultDiagnosticRules
     // 既定で入れると正常な稼働をインシデントとして流し続けることになるため、
     // 必要な対象にだけ利用者が足す。
     //
-    // ディスク使用率の初期ルールも置かない。
-    // Docker APIはホストのファイルシステム容量を返さず、収集する手段が無い。
-    // ディスク不足は「ディスク逼迫(ログ検知)」で拾う。
+    // ディスクだけメモリより低い85%にしてある。
+    // メモリは逼迫しても解放されれば戻るが、ディスクは自然には減らない。
+    // 満杯になってから気づいても、消すものを選ぶ余裕が無い。
 }

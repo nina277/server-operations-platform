@@ -19,6 +19,7 @@ public class TargetCollectionServiceTests
     private readonly FakeIncidentLogRepository _logs = new();
     private readonly FakeDockerAdapter _docker = new();
     private readonly FakeHttpAdapter _http = new();
+    private readonly FakeHostMetricsAdapter _hostMetrics = new();
     private readonly TestTimeProvider _time = new(BaseTime);
 
     private readonly Microsoft.AspNetCore.DataProtection.EphemeralDataProtectionProvider _dataProtection = new();
@@ -30,7 +31,7 @@ public class TargetCollectionServiceTests
     private readonly FakeDiagnosticRuleRepository _rules = new();
 
     private TargetCollectionService CreateSut() => new(
-        _targets, _snapshots, _incidents, _logs, _docker, _http, new AdapterTemplateCatalog(),
+        _targets, _snapshots, _incidents, _logs, _docker, _http, _hostMetrics, new AdapterTemplateCatalog(),
         _dataProtection, _diagnosis, new ResourceThresholdDetector(_rules, new RuleEngine()),
         _notifications, _autoRecovery, _time,
         NullLogger<TargetCollectionService>.Instance);
@@ -162,7 +163,7 @@ public class TargetCollectionServiceTests
         AddHttpTarget();
         var throwingHttp = new ThrowingHttpAdapter();
         var sut = new TargetCollectionService(
-            _targets, _snapshots, _incidents, _logs, _docker, throwingHttp, new AdapterTemplateCatalog(),
+            _targets, _snapshots, _incidents, _logs, _docker, throwingHttp, _hostMetrics, new AdapterTemplateCatalog(),
             _dataProtection, _diagnosis, new ResourceThresholdDetector(_rules, new RuleEngine()),
             _notifications, _autoRecovery, _time,
             NullLogger<TargetCollectionService>.Instance);
@@ -324,7 +325,7 @@ public class TargetCollectionServiceTests
         // 対象へ到達できていない状態で復旧操作を試みない
         AddHttpTarget();
         var sut = new TargetCollectionService(
-            _targets, _snapshots, _incidents, _logs, _docker, new ThrowingHttpAdapter(),
+            _targets, _snapshots, _incidents, _logs, _docker, new ThrowingHttpAdapter(), _hostMetrics,
             new AdapterTemplateCatalog(), _dataProtection, _diagnosis,
             new ResourceThresholdDetector(_rules, new RuleEngine()), _notifications, _autoRecovery,
             _time,
@@ -634,5 +635,150 @@ public class TargetCollectionServiceTests
         await CreateSut().CollectAsync(1);
 
         Assert.Empty(_autoRecovery.Calls);
+    }
+
+    // --- ホストのディスク使用率(B-11) ---
+
+    private void SetMetricsEndpoint(long id, string url)
+    {
+        var target = _targets.Targets.Single(t => t.Id == id);
+        var settings = JsonSerializer.Deserialize<Dictionary<string, string>>(
+            target.Profile!.SettingsJson)!;
+        settings["metricsEndpoint"] = url;
+        target.Profile.SettingsJson = JsonSerializer.Serialize(settings);
+    }
+
+    private void AddDiskPressureRule(double threshold = 85)
+    {
+        _rules.Rules.Add(new DiagnosticRule
+        {
+            Id = _rules.Rules.Count + 1,
+            Name = "ディスク逼迫(使用率)",
+            Classification = "DiskPressure",
+            RuleType = DiagnosticRuleType.Threshold,
+            ConditionJson =
+                $$"""{"field":"diskUsagePercent","operator":">=","value":{{threshold}}}""",
+            Severity = IncidentSeverity.Medium,
+            Priority = 20,
+            RationaleTemplate = "ディスク使用率が {value}% に達しています。",
+        });
+    }
+
+    [Fact]
+    public async Task ホストのディスク使用率を収集して残す()
+    {
+        AddDockerTarget();
+        SetMetricsEndpoint(1, "http://192.168.1.20:9100/metrics");
+        _hostMetrics.Filesystems = [new FilesystemUsage("/", 1000, 100, 88.89)];
+
+        await CreateSut().CollectAsync(1);
+
+        var snapshot = Assert.Single(_snapshots.Snapshots, s => s.Kind == "disk");
+        Assert.Equal(CollectionStatus.Ok, snapshot.Status);
+        Assert.Contains("88.89", snapshot.PayloadJson);
+        Assert.Contains("/", snapshot.PayloadJson);
+    }
+
+    [Fact]
+    public async Task 接続先が未設定なら取りに行かない()
+    {
+        // 設定していない対象で毎回失敗を積み上げない
+        AddDockerTarget();
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Empty(_hostMetrics.CalledUrls);
+        Assert.DoesNotContain(_snapshots.Snapshots, s => s.Kind == "disk");
+    }
+
+    [Fact]
+    public async Task ディスク使用率を外すと取りに行かない()
+    {
+        AddDockerTarget();
+        SetMetricsEndpoint(1, "http://192.168.1.20:9100/metrics");
+        SetEnabledMonitors(1, $"[\"{MonitorKinds.ContainerState}\"]");
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Empty(_hostMetrics.CalledUrls);
+    }
+
+    [Fact]
+    public async Task ディスクのしきい値を超えたらインシデントにする()
+    {
+        AddDockerTarget();
+        SetMetricsEndpoint(1, "http://192.168.1.20:9100/metrics");
+        AddDiskPressureRule();
+        _hostMetrics.Filesystems = [new FilesystemUsage("/", 1000, 50, 92.0)];
+
+        await CreateSut().CollectAsync(1);
+
+        var incident = Assert.Single(_incidents.Incidents);
+        Assert.Equal("DiskPressure", incident.Classification);
+
+        // どのファイルシステムが逼迫しているかが分からないと手当てのしようがない
+        Assert.Equal("/", incident.Service);
+    }
+
+    [Fact]
+    public async Task ファイルシステムごとに別のインシデントにする()
+    {
+        // / と /mnt/data では消すべきものが違う。1件にまとめると手当てを誤る
+        AddDockerTarget();
+        SetMetricsEndpoint(1, "http://192.168.1.20:9100/metrics");
+        AddDiskPressureRule();
+        _hostMetrics.Filesystems =
+        [
+            new FilesystemUsage("/", 1000, 50, 92.0),
+            new FilesystemUsage("/mnt/data", 1000, 20, 96.0),
+            new FilesystemUsage("/boot", 1000, 800, 20.0),
+        ];
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Equal(2, _incidents.Incidents.Count);
+        Assert.Equal(["/", "/mnt/data"], _incidents.Incidents.Select(i => i.Service));
+    }
+
+    [Fact]
+    public async Task ディスクの逼迫では自動復旧を試みない()
+    {
+        // コンテナを再起動しても容量は戻らない。消してよいものを決められるのは人だけ
+        AddDockerTarget();
+        SetMetricsEndpoint(1, "http://192.168.1.20:9100/metrics");
+        AddDiskPressureRule();
+        _hostMetrics.Filesystems = [new FilesystemUsage("/", 1000, 50, 92.0)];
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Empty(_autoRecovery.Calls);
+    }
+
+    [Fact]
+    public async Task ディスク使用率が読めなければ収集失敗として残す()
+    {
+        // 空の結果を正常な収集として記録すると、取れていないことが見えなくなる
+        AddDockerTarget();
+        SetMetricsEndpoint(1, "http://192.168.1.20:9100/metrics");
+        AddDiskPressureRule();
+
+        await CreateSut().CollectAsync(1);
+
+        var snapshot = Assert.Single(_snapshots.Snapshots, s => s.Kind == "disk");
+        Assert.Equal(CollectionStatus.Failed, snapshot.Status);
+        Assert.NotNull(snapshot.ErrorMessage);
+
+        // 読めなかったことを「しきい値を下回っている」と読み替えない
+        Assert.Empty(_incidents.Incidents);
+    }
+
+    [Fact]
+    public async Task Composeアプリの対象ではディスク使用率を扱わない()
+    {
+        // ホストのディスクはComposeプロジェクト単位の値ではない。
+        // 同じホストの対象ごとに同じ数値のインシデントが並ぶのを避ける
+        var template = new AdapterTemplateCatalog().Find("docker-compose-app")!;
+
+        Assert.DoesNotContain(MonitorKinds.DiskUsage, template.CollectableMonitors);
     }
 }

@@ -5,7 +5,12 @@ public record AdapterConnectionResult(
     bool Success,
     string Message,
     long? LatencyMs = null,
-    string? Detail = null);
+    string? Detail = null,
+    /// <summary>
+    /// 受信したHTTPステータスコード。HTTP監視でのみ入る。
+    /// 応答文にも書いてあるが、ルールの条件で使うには数値として持つ必要がある。
+    /// </summary>
+    int? StatusCode = null);
 
 /// <summary>正規化済みのコンテナ情報。</summary>
 public record ContainerInfo(

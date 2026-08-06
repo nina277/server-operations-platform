@@ -26,9 +26,15 @@ public static class MonitorKinds
     /// </summary>
     public const string ResourceUsage = "resource-usage";
 
+    /// <summary>
+    /// ホストのディスク使用率。node_exporter のエンドポイントを設定した対象でのみ行う。
+    /// Docker APIとは別のホストへの問い合わせになるため、単独で外せるようにしておく。
+    /// </summary>
+    public const string DiskUsage = "disk-usage";
+
     /// <summary>HTTPヘルスチェック(死活と応答時間)。</summary>
     public const string HttpCheck = "http-check";
 
     public static readonly IReadOnlyList<string> All =
-        [ContainerState, LogExcerpt, ResourceUsage, HttpCheck];
+        [ContainerState, LogExcerpt, ResourceUsage, DiskUsage, HttpCheck];
 }
