@@ -29,6 +29,7 @@ public class TargetCollectionService(
     IDataProtectionProvider dataProtectionProvider,
     IDiagnosisService diagnosisService,
     IResourceThresholdDetector resourceThresholdDetector,
+    ILogScanDetector logScanDetector,
     Notifications.INotificationService notificationService,
     IAutoRecoveryService autoRecoveryService,
     TimeProvider timeProvider,
@@ -42,6 +43,15 @@ public class TargetCollectionService(
 
     /// <summary>リソース使用率の同時取得数。対象のDocker APIへ一度に集中させない。</summary>
     private const int StatsConcurrency = 4;
+
+    /// <summary>
+    /// 1回の収集でログを走査する稼働中コンテナ数の上限。
+    /// 使用率(1件あたり約1秒)より軽いが、コンテナごとに別のAPI呼び出しになる点は同じ。
+    /// </summary>
+    public const int MaxLogScanContainers = 20;
+
+    /// <summary>ログ取得の同時実行数。使用率と同じ理由で対象へ一度に集中させない。</summary>
+    private const int LogScanConcurrency = 4;
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -142,11 +152,121 @@ public class TargetCollectionService(
                 targetId, endpoint, containers, collectLogs, now, ct);
         }
 
+        // 稼働中コンテナのログ走査。停止コンテナのログは上の状態収集側で扱う。
+        if (collectLogs)
+        {
+            await ScanRunningContainerLogsAsync(targetId, endpoint, containers, ct);
+        }
+
         // 使用率の取得は1件あたり約1秒かかる。
         // 停止コンテナの検出を待たせないよう、状態の収集を先に終わらせてから行う。
         if (collectResources)
         {
             await CollectResourceUsageAsync(targetId, endpoint, containers, ct);
+        }
+    }
+
+    /// <summary>
+    /// 稼働中コンテナのログ末尾を走査し、ログのルールに当たったものをインシデント化する。
+    ///
+    /// 停止コンテナのログは状態収集の側で取っている。ここは
+    /// **動き続けたままエラーを出しているコンテナ**を拾うための経路で、
+    /// これが無いとログ検知のルールは停止後にしか当たらない。
+    /// </summary>
+    private async Task ScanRunningContainerLogsAsync(
+        long targetId, string endpoint, IReadOnlyList<ContainerInfo> containers, CancellationToken ct)
+    {
+        // 停止コンテナはここでは扱わない(状態収集の側で二重にインシデント化しないため)。
+        // 順序を固定するため名前で並べる
+        var running = containers
+            .Where(c => c.State.Equals("running", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(c => c.Name, StringComparer.Ordinal)
+            .ToList();
+
+        var scanned = running.Take(MaxLogScanContainers).ToList();
+        if (scanned.Count == 0)
+        {
+            return;
+        }
+
+        var excerpts = new string?[scanned.Count];
+        using (var gate = new SemaphoreSlim(LogScanConcurrency))
+        {
+            await Task.WhenAll(scanned.Select(async (container, index) =>
+            {
+                await gate.WaitAsync(ct);
+                try
+                {
+                    excerpts[index] = await dockerAdapter.GetContainerLogsAsync(
+                        endpoint, container.Id, 50, ct);
+                }
+                catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+                {
+                    // 1件の取得失敗で対象全体の収集を落とさない
+                    excerpts[index] = null;
+                }
+                finally
+                {
+                    gate.Release();
+                }
+            }));
+        }
+
+        var samples = new List<ContainerLogSample>();
+        for (var i = 0; i < scanned.Count; i++)
+        {
+            if (!string.IsNullOrWhiteSpace(excerpts[i]))
+            {
+                samples.Add(new ContainerLogSample(scanned[i].Name, excerpts[i]!));
+            }
+        }
+
+        if (running.Count > scanned.Count)
+        {
+            logger.LogInformation(
+                "Log scan covered {Scanned} of {Total} running containers on target {TargetId}.",
+                scanned.Count, running.Count, targetId);
+        }
+
+        var now = timeProvider.GetUtcNow().UtcDateTime;
+
+        foreach (var alert in await logScanDetector.DetectAsync(samples, ct))
+        {
+            // 署名には一致した部分だけを渡す。ログ末尾そのものを渡すと
+            // 行が流れるたびに別の署名になり、同じ障害が毎回新しいインシデントになる。
+            var (incident, shouldDiagnose) = await UpsertIncidentAsync(
+                targetId,
+                classification: alert.Rule.Classification,
+                service: alert.ContainerName,
+                title: $"コンテナ {alert.ContainerName}: {alert.Rule.Name}",
+                severity: alert.Rule.Severity,
+                logExcerpt: alert.MatchedValue,
+                ct);
+
+            if (!shouldDiagnose)
+            {
+                // 継続中の同じ障害。ログを積み増すと同じ内容で際限なく増える
+                continue;
+            }
+
+            await incidentLogs.AddAsync(new IncidentLog
+            {
+                TargetId = targetId,
+                IncidentId = incident.Id,
+                CollectedAt = now,
+                Source = alert.ContainerName,
+                MaskedContent = Truncate(alert.MaskedLog, 16000),
+            }, ct);
+            await incidentLogs.SaveChangesAsync(ct);
+
+            // 診断までは行うが、**復旧はここでは試みない。**
+            //
+            // ログの中身は監視対象の側が自由に書けるものであり、
+            // 収集した文字列をそのまま自動実行の引き金にすると、
+            // ログに書き込める者が稼働中のコンテナを再起動させられることになる。
+            // (プロンプト注入の試験ST-AIが通る経路もここ)
+            // 停止コンテナの復旧と違い、動いているものを止める判断は人へ残す。
+            await diagnosisService.DiagnoseAsync(incident, alert.Context, ct);
         }
     }
 

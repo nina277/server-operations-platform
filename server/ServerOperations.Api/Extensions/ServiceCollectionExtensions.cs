@@ -86,6 +86,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<Core.Services.IRuleEngine, Core.Services.RuleEngine>();
         services.AddScoped<Core.Services.IDiagnosisService, Core.Services.DiagnosisService>();
         services.AddScoped<Core.Services.IResourceThresholdDetector, Core.Services.ResourceThresholdDetector>();
+        services.AddScoped<Core.Services.ILogScanDetector, Core.Services.LogScanDetector>();
 
         // 復旧(T-06)。APIは受付・検証のみを行い、実行はWorkerが担う。
         var recoveryLimits = configuration.GetSection(Core.Services.RecoveryLimits.SectionName)

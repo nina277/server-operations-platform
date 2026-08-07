@@ -13,7 +13,9 @@ public static class MonitorKinds
     public const string ContainerState = "container-state";
 
     /// <summary>
-    /// 停止コンテナのログ末尾の取得。
+    /// コンテナのログ末尾の取得と、ログのルールによる検知。
+    /// 停止コンテナだけでなく、稼働中コンテナのログも走査する
+    /// (稼働したままエラーを出し続けるものを拾うため)。
     /// コンテナ一覧とは別のAPI呼び出しで、外せば取得しなくなる。
     /// ログに出したくない情報がある対象では外せるようにしておく。
     /// </summary>

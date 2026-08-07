@@ -33,6 +33,7 @@ public class TargetCollectionServiceTests
     private TargetCollectionService CreateSut() => new(
         _targets, _snapshots, _incidents, _logs, _docker, _http, _hostMetrics, new AdapterTemplateCatalog(),
         _dataProtection, _diagnosis, new ResourceThresholdDetector(_rules, new RuleEngine()),
+        new LogScanDetector(_rules, new RuleEngine()),
         _notifications, _autoRecovery, _time,
         NullLogger<TargetCollectionService>.Instance);
 
@@ -165,6 +166,7 @@ public class TargetCollectionServiceTests
         var sut = new TargetCollectionService(
             _targets, _snapshots, _incidents, _logs, _docker, throwingHttp, _hostMetrics, new AdapterTemplateCatalog(),
             _dataProtection, _diagnosis, new ResourceThresholdDetector(_rules, new RuleEngine()),
+            new LogScanDetector(_rules, new RuleEngine()),
             _notifications, _autoRecovery, _time,
             NullLogger<TargetCollectionService>.Instance);
 
@@ -327,7 +329,8 @@ public class TargetCollectionServiceTests
         var sut = new TargetCollectionService(
             _targets, _snapshots, _incidents, _logs, _docker, new ThrowingHttpAdapter(), _hostMetrics,
             new AdapterTemplateCatalog(), _dataProtection, _diagnosis,
-            new ResourceThresholdDetector(_rules, new RuleEngine()), _notifications, _autoRecovery,
+            new ResourceThresholdDetector(_rules, new RuleEngine()),
+            new LogScanDetector(_rules, new RuleEngine()), _notifications, _autoRecovery,
             _time,
             NullLogger<TargetCollectionService>.Instance);
 
@@ -780,5 +783,153 @@ public class TargetCollectionServiceTests
         var template = new AdapterTemplateCatalog().Find("docker-compose-app")!;
 
         Assert.DoesNotContain(MonitorKinds.DiskUsage, template.CollectableMonitors);
+    }
+
+    // --- 稼働中コンテナのログ検知 ---
+    //
+    // 実環境試験のSC-04が検知できなかったことで見つかった。
+    // ログ抜粋は停止コンテナからしか取っておらず、
+    // 「動き続けたままエラーを出しているコンテナ」は一度も読まれていなかった。
+
+    private void AddDiskPressureLogRule()
+    {
+        _rules.Rules.Add(new DiagnosticRule
+        {
+            Id = _rules.Rules.Count + 1,
+            Name = "ディスク逼迫(ログ検知)",
+            Classification = "DiskPressure",
+            RuleType = DiagnosticRuleType.Regex,
+            ConditionJson =
+                """{"field":"logExcerpt","pattern":"(?i)no space left on device|disk full"}""",
+            Severity = IncidentSeverity.High,
+            Priority = 5,
+            RationaleTemplate = "ログにディスク不足の兆候({value})が含まれています。",
+        });
+    }
+
+    [Fact]
+    public async Task 稼働中コンテナのログにディスク不足が出たらインシデントにする()
+    {
+        // SC-04。tmpfsが満杯になってもコンテナは動き続けるため、
+        // 停止コンテナしか見ない収集では永久に検知できなかった
+        AddDockerTarget();
+        AddDiskPressureLogRule();
+        _docker.Containers = [new ContainerInfo("c1", "lab-disk", "alpine:3.20", "running", "Up 5 minutes", 0)];
+        _docker.ContainerLogs["c1"] = "dd: error writing '/scratch/fill': No space left on device";
+
+        await CreateSut().CollectAsync(1);
+
+        var incident = Assert.Single(_incidents.Incidents);
+        Assert.Equal("DiskPressure", incident.Classification);
+
+        // どのコンテナが逼迫しているかが分からないと手当てのしようがない
+        Assert.Equal("lab-disk", incident.Service);
+    }
+
+    [Fact]
+    public async Task 稼働中コンテナのログ検知では自動復旧を試みない()
+    {
+        // ログの中身は監視対象の側が自由に書ける。
+        // 収集した文字列が自動実行の引き金になると、
+        // ログへ書き込める者が稼働中のコンテナを再起動させられることになる(ST-AI)
+        AddDockerTarget();
+        _rules.Rules.Add(new DiagnosticRule
+        {
+            Id = 1,
+            Name = "メモリ逼迫(ログ検知)",
+            Classification = "MemoryPressure",
+            RuleType = DiagnosticRuleType.Regex,
+            ConditionJson = """{"field":"logExcerpt","pattern":"(?i)out of memory"}""",
+            Severity = IncidentSeverity.High,
+            // 停止コンテナでは再起動を推奨するルールだが、稼働中では実行させない
+            RecommendedActionId = "RESTART_ALLOWED_CONTAINER",
+            Priority = 5,
+            RationaleTemplate = "ログにメモリ不足の兆候({value})が含まれています。",
+        });
+        _docker.Containers = [new ContainerInfo("c1", "app", "alpine:3.20", "running", "Up 5 minutes", 0)];
+        _docker.ContainerLogs["c1"] = "FATAL: Out of memory: Killed process 1";
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Single(_incidents.Incidents);
+        Assert.Empty(_autoRecovery.Calls);
+    }
+
+    [Fact]
+    public async Task 同じ障害が続いてもインシデントは増えない()
+    {
+        // ログ末尾をそのまま署名にすると、行が流れるたびに別の署名になり、
+        // **収集のたびに新しいインシデントが積み上がる**
+        AddDockerTarget();
+        AddDiskPressureLogRule();
+        _docker.Containers = [new ContainerInfo("c1", "lab-disk", "alpine:3.20", "running", "Up 5 minutes", 0)];
+
+        _docker.ContainerLogs["c1"] = "12:00:01 request 1841 ok\ndd: No space left on device";
+        await CreateSut().CollectAsync(1);
+
+        // 同じ障害が続いているが、前後の行は流れて変わっている
+        _docker.ContainerLogs["c1"] = "12:00:31 request 2903 ok\ndd: No space left on device";
+        await CreateSut().CollectAsync(1);
+
+        var incident = Assert.Single(_incidents.Incidents);
+        Assert.Equal(2, incident.OccurrenceCount);
+
+        // 継続中の同じ障害でログを積み増すと、同じ内容で際限なく増える
+        Assert.Single(_logs.Logs);
+    }
+
+    [Fact]
+    public async Task ログ抜粋を外すと稼働中コンテナのログを取りに行かない()
+    {
+        AddDockerTarget();
+        AddDiskPressureLogRule();
+        SetEnabledMonitors(1, $"[\"{MonitorKinds.ContainerState}\"]");
+        _docker.Containers = [new ContainerInfo("c1", "lab-disk", "alpine:3.20", "running", "Up 5 minutes", 0)];
+        _docker.ContainerLogs["c1"] = "dd: No space left on device";
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Empty(_docker.LogRequests);
+        Assert.Empty(_incidents.Incidents);
+    }
+
+    [Fact]
+    public async Task 稼働中コンテナのログに秘密情報が出ても伏せて保存する()
+    {
+        AddDockerTarget();
+        AddDiskPressureLogRule();
+        _docker.Containers = [new ContainerInfo("c1", "lab-disk", "alpine:3.20", "running", "Up 5 minutes", 0)];
+        _docker.ContainerLogs["c1"] =
+            "password=hunter2trustno1 のあと disk full になりました";
+
+        await CreateSut().CollectAsync(1);
+
+        var log = Assert.Single(_logs.Logs);
+        Assert.DoesNotContain("hunter2trustno1", log.MaskedContent);
+    }
+
+    [Fact]
+    public async Task 稼働中コンテナのログ検知は状態ルールに当たらない()
+    {
+        // 判定へ渡す文脈にログ以外を入れると、コンテナ停止のルールが
+        // 稼働中のコンテナに対して評価されてしまう
+        AddDockerTarget();
+        _rules.Rules.Add(new DiagnosticRule
+        {
+            Id = 1,
+            Name = "コンテナ停止",
+            Classification = "ContainerStopped",
+            RuleType = DiagnosticRuleType.State,
+            ConditionJson = """{"field":"containerState","equalsAny":["exited","dead"]}""",
+            Severity = IncidentSeverity.High,
+            Priority = 10,
+            RationaleTemplate = "コンテナ状態が {value} です。",
+        });
+        _docker.Containers = [new ContainerInfo("c1", "app", "alpine:3.20", "running", "Up 5 minutes", 0)];
+        _docker.ContainerLogs["c1"] = "running fine";
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Empty(_incidents.Incidents);
     }
 }
