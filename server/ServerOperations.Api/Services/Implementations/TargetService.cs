@@ -111,6 +111,14 @@ public class TargetService(
         target.IsEnabled = request.IsEnabled;
         target.AutoRecoveryEnabled = request.AutoRecoveryEnabled;
         target.AllowedContainersJson = AllowedContainers.Serialize(request.AllowedContainers);
+        // 実際に使える間隔へ丸めてから保存する。丸めずに持つと、
+        // 画面に出る値と実際の動きが食い違う。
+        target.CollectionIntervalSeconds = request.CollectionIntervalSeconds is { } seconds
+            ? CollectionInterval.Normalize(seconds)
+            : null;
+        // テンプレートで行えない種類は黙って捨てず、保存前に拒否する
+        EnabledMonitors.Validate(request.EnabledMonitors, template);
+        target.EnabledMonitorsJson = EnabledMonitors.Serialize(request.EnabledMonitors, template);
         target.UpdatedAt = now;
 
         if (target.Profile is null)
@@ -176,8 +184,61 @@ public class TargetService(
             Capabilities = template.Capabilities,
             AllowedOperations = template.AllowedOperations,
             RecommendedMonitors = template.RecommendedMonitors,
+            CollectableMonitors = template.CollectableMonitors,
             InitialRules = template.InitialRules,
         };
+    }
+
+    public async Task<TargetDeletePreviewDto> PreviewDeleteAsync(
+        long id, CancellationToken ct = default)
+    {
+        var target = await targets.FindByIdAsync(id, ct)
+            ?? throw AppException.NotFound("target_not_found", "監視対象が見つかりません。");
+
+        var counts = await targets.CountDependentsAsync(id, ct);
+
+        return new TargetDeletePreviewDto
+        {
+            TargetId = target.Id,
+            TargetName = target.Name,
+            MetricSnapshots = counts.MetricSnapshots,
+            Incidents = counts.Incidents,
+            IncidentLogs = counts.IncidentLogs,
+            Diagnoses = counts.Diagnoses,
+            RecoveryActions = counts.RecoveryActions,
+            HealthChecks = counts.HealthChecks,
+            Notifications = counts.Notifications,
+            MaintenanceWindows = counts.MaintenanceWindows,
+            Total = counts.Total,
+        };
+    }
+
+    public async Task DeleteAsync(long id, CancellationToken ct = default)
+    {
+        var target = await targets.FindByIdAsync(id, ct)
+            ?? throw AppException.NotFound("target_not_found", "監視対象が見つかりません。");
+
+        // 監視中の対象を誤って消さない。止めてから消す手順にする。
+        if (target.IsEnabled)
+        {
+            throw AppException.BadRequest(
+                "target_still_enabled",
+                "監視中の対象は削除できません。先に「監視する」を外してください。");
+        }
+
+        var counts = await targets.CountDependentsAsync(id, ct);
+
+        // 何が消えたかを監査に残す。削除後は本体から辿れなくなるため、
+        // 件数だけでもここに残しておく。
+        await audit.RecordAsync(
+            "target.delete", "MonitoringTarget", target.Id.ToString(), AuditResult.Success,
+            currentUser.UserId, currentUser.Username,
+            $"name={target.Name} template={target.TemplateId} "
+                + $"incidents={counts.Incidents} metrics={counts.MetricSnapshots} "
+                + $"recoveryActions={counts.RecoveryActions} total={counts.Total}",
+            ct);
+
+        await targets.DeleteWithDependentsAsync(target, ct);
     }
 
     public async Task<ConnectionTestResultDto> TestConnectionAsync(long id, CancellationToken ct = default)
@@ -333,7 +394,11 @@ public class TargetService(
         return credential is null ? null : _protector.Unprotect(credential.ValueProtected);
     }
 
-    private static TargetDto ToDto(MonitoringTarget target) => new()
+    /// <summary>
+    /// 表示用へ直す。行う収集の種類は、未設定でもテンプレートの既定を展開して返す。
+    /// 空のまま返すと、画面側が「何もしない」と読み違える。
+    /// </summary>
+    private TargetDto ToDto(MonitoringTarget target) => new()
     {
         Id = target.Id,
         Name = target.Name,
@@ -342,6 +407,10 @@ public class TargetService(
         IsEnabled = target.IsEnabled,
         AutoRecoveryEnabled = target.AutoRecoveryEnabled,
         AllowedContainers = AllowedContainers.Parse(target),
+        CollectionIntervalSeconds = target.CollectionIntervalSeconds,
+        EnabledMonitors = catalog.Find(target.TemplateId) is { } template
+            ? EnabledMonitors.Resolve(target, template)
+            : [],
         Settings = ReadSettings(target),
         ConfiguredCredentials = target.Credentials.Select(c => c.Kind).OrderBy(k => k).ToList(),
         CreatedAt = target.CreatedAt,

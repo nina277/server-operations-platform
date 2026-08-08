@@ -18,10 +18,13 @@ export interface AdapterTemplate {
   name: string
   description: string
   inputs: AdapterTemplateInput[]
+  /** 案内の文章。選択肢ではない。 */
   recommendedMonitors: string[]
   initialRules: string[]
   allowedOperations: string[]
   capabilities: string[]
+  /** 対象ごとに入切できる収集の種類。画面の選択肢はこれで作る。 */
+  collectableMonitors: string[]
 }
 
 export interface Target {
@@ -37,6 +40,13 @@ export interface Target {
   settings: Record<string, string>
   /** 設定済みの秘密値の種別名のみ。値は返らない。 */
   configuredCredentials: string[]
+  /** この対象の収集間隔(秒)。nullなら全体の既定値で動く。 */
+  collectionIntervalSeconds: number | null
+  /**
+   * この対象で行う収集の種類。
+   * 未設定でもテンプレートの既定を展開して返るため、空 = 何もしない ではない。
+   */
+  enabledMonitors: string[]
   createdAt: string
   updatedAt: string
 }
@@ -55,6 +65,13 @@ export interface UpdateTargetRequest {
   isEnabled: boolean
   autoRecoveryEnabled: boolean
   allowedContainers: string[]
+  /**
+   * この対象の収集間隔(秒)。nullなら全体の既定値を使う。
+   * 実際に使える値へ丸められるため、送った値がそのまま返るとは限らない。
+   */
+  collectionIntervalSeconds?: number | null
+  /** 省略(undefined)ならテンプレートで行えるものすべて。 */
+  enabledMonitors?: string[] | null
   settings: Record<string, string>
   /** 変更する秘密値のみ入れる。省略したものは維持される。 */
   credentials: Record<string, string>
@@ -73,6 +90,8 @@ export interface TargetCapabilities {
   capabilities: string[]
   allowedOperations: string[]
   recommendedMonitors: string[]
+  /** 対象ごとに入切できる収集の種類。 */
+  collectableMonitors: string[]
   initialRules: string[]
 }
 
@@ -206,12 +225,42 @@ export interface HealthCheck {
   checkedAt: string
 }
 
+export type MonitoringReach = 'Reaching' | 'NeverCollected' | 'Stale'
+
+/** 監視が届いているかの状態。 */
+export interface TargetMonitoringHealth {
+  targetId: number
+  targetName: string
+  reach: MonitoringReach
+  lastCollectedAt: string | null
+  expectedIntervalSeconds: number
+  staleForSeconds: number | null
+}
+
 export interface DashboardSummary {
   targetCount: number
   enabledTargetCount: number
   activeIncidentsBySeverity: Record<string, number>
   incidentsByStatus: Record<string, number>
   recentIncidents: Incident[]
+  /**
+   * 収集が届いていない監視対象。
+   * これが無いと「障害が無い」と「監視が死んでいる」が区別できない。
+   */
+  unreachedTargets: TargetMonitoringHealth[]
+  /** 対象ごとの直近の状態。件数の集計だけではどの対象がつらいのか分からない。 */
+  targetStates: TargetState[]
+}
+
+export interface TargetState {
+  targetId: number
+  targetName: string
+  isEnabled: boolean
+  reach: MonitoringReach
+  activeIncidents: number
+  /** 未解決のうち最も高い重大度。0件ならnull。 */
+  highestSeverity: string | null
+  lastCollectedAt: string | null
 }
 
 export interface DiagnosticRule {
@@ -288,6 +337,7 @@ export interface RuleTestRequest {
   containerState?: string | null
   containerName?: string | null
   restartCount?: number | null
+  cpuUsagePercent?: number | null
   memoryUsagePercent?: number | null
   diskUsagePercent?: number | null
   httpSuccess?: boolean | null
@@ -371,4 +421,109 @@ export interface UpdateAiLimitsRequest {
   maxInputCharacters: number
   maxOutputTokens: number
   timeoutSeconds: number
+}
+
+// --- 運用実績サマリ ---
+
+/** 所要時間の分布。平均だけでは外れ値に引きずられるため中央値と最大も返る。 */
+export interface DurationStats {
+  count: number
+  averageSeconds: number | null
+  medianSeconds: number | null
+  p95Seconds: number | null
+  maxSeconds: number | null
+}
+
+export interface OperationsInsights {
+  from: string
+  to: string
+  /** 成功基準#2: 検知から通知までの所要時間。 */
+  detectionToNotification: DurationStats
+  /** 基準の秒数以内に通知できた割合。件数0ならnull。 */
+  notifiedWithinTargetRatio: number | null
+  notificationTargetSeconds: number
+  recoveryDuration: DurationStats
+  autoRecoveryDuration: DurationStats
+  incidentsDetected: number
+  incidentsResolved: number
+  incidentsBySeverity: Record<string, number>
+  recoveryByStatus: Record<string, number>
+  autoRecoveryByStatus: Record<string, number>
+  /** 自動実行の成功率。実行した件数が0ならnull。 */
+  autoRecoverySuccessRatio: number | null
+  /** 安全機構が自動実行を止めた理由の内訳。 */
+  blockedReasons: Record<string, number>
+}
+
+// --- 障害の再発 ---
+
+export interface Recurrence {
+  totalCount: number
+  resolvedCount: number
+  firstOccurredAt: string | null
+  previousOccurredAt: string | null
+  /** 前回この障害を解決した復旧操作のID。 */
+  lastSuccessfulActionId: string | null
+  lastSuccessfulAt: string | null
+}
+
+// --- インシデントの対応メモ ---
+
+export interface IncidentNote {
+  id: number
+  authorName: string
+  body: string
+  createdAt: string
+}
+
+// --- メンテナンス期間 ---
+
+export interface MaintenanceWindow {
+  id: number
+  /** nullならすべての監視対象が対象。 */
+  targetId: number | null
+  targetName: string | null
+  reason: string
+  startsAt: string
+  endsAt: string
+  suppressNotifications: boolean
+  suppressAutoRecovery: boolean
+  cancelledAt: string | null
+  /** いま効いているか。 */
+  isActive: boolean
+  createdAt: string
+}
+
+export interface CreateMaintenanceWindowRequest {
+  targetId?: number | null
+  reason: string
+  startsAt: string
+  endsAt: string
+  suppressNotifications: boolean
+  suppressAutoRecovery: boolean
+}
+
+// --- 通知のテスト送信 ---
+
+export interface NotificationTestResult {
+  channel: string
+  success: boolean
+  /** 設定が無く送らなかった場合はtrue。失敗とは区別する。 */
+  skipped: boolean
+  message: string | null
+}
+
+/** 監視対象を削除したときに一緒に消えるものの件数。 */
+export interface TargetDeletePreview {
+  targetId: number
+  targetName: string
+  metricSnapshots: number
+  incidents: number
+  incidentLogs: number
+  diagnoses: number
+  recoveryActions: number
+  healthChecks: number
+  notifications: number
+  maintenanceWindows: number
+  total: number
 }

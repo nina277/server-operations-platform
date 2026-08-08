@@ -5,7 +5,12 @@ public record AdapterConnectionResult(
     bool Success,
     string Message,
     long? LatencyMs = null,
-    string? Detail = null);
+    string? Detail = null,
+    /// <summary>
+    /// 受信したHTTPステータスコード。HTTP監視でのみ入る。
+    /// 応答文にも書いてあるが、ルールの条件で使うには数値として持つ必要がある。
+    /// </summary>
+    int? StatusCode = null);
 
 /// <summary>正規化済みのコンテナ情報。</summary>
 public record ContainerInfo(
@@ -15,6 +20,18 @@ public record ContainerInfo(
     string State,
     string Status,
     int RestartCount);
+
+/// <summary>
+/// コンテナのリソース使用率。算出できなかった項目はnullにする。
+///
+/// 取れなかったものを0で埋めてはならない。
+/// 0%は「使っていない」という正常値であり、逼迫を見逃す方向へ誤る。
+/// </summary>
+public record ContainerStats(
+    double? CpuUsagePercent,
+    double? MemoryUsagePercent,
+    long? MemoryUsageBytes,
+    long? MemoryLimitBytes);
 
 public interface IDockerAdapter
 {
@@ -28,6 +45,15 @@ public interface IDockerAdapter
     /// </summary>
     Task<IReadOnlyList<ContainerInfo>> ListContainersAsync(
         string endpoint, string? composeProject = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// コンテナのCPU・メモリ使用率を1回分取得する。取得できない場合はnull。
+    ///
+    /// Docker APIは前回値との差分でしかCPU使用率を出せないため、この呼び出しは
+    /// 内部で2周期分(約1秒)待つ。呼び出し側でコンテナ数に上限を設けること。
+    /// </summary>
+    Task<ContainerStats?> GetContainerStatsAsync(
+        string endpoint, string containerId, CancellationToken ct = default);
 
     /// <summary>コンテナログの末尾を取得する(呼び出し側でマスクして保存すること)。</summary>
     Task<string> GetContainerLogsAsync(

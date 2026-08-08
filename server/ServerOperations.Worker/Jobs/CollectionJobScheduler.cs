@@ -1,4 +1,5 @@
 using Hangfire;
+using ServerOperations.Core.Models.Operations;
 using ServerOperations.Core.Repositories.Interfaces;
 using ServerOperations.Core.Services;
 
@@ -16,7 +17,8 @@ public class CollectionJobScheduler(
 {
     private const string JobIdPrefix = "collect-target-";
 
-    private readonly HashSet<string> _registered = [];
+    /// <summary>登録済みジョブID → 適用中のcron式。間隔の変更を見分けるために保持する。</summary>
+    private readonly Dictionary<string, string> _registered = [];
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -46,33 +48,52 @@ public class CollectionJobScheduler(
         }
     }
 
-    private async Task SyncJobsAsync(string cron, CancellationToken ct)
+    private async Task SyncJobsAsync(string defaultCron, CancellationToken ct)
     {
         using var scope = scopeFactory.CreateScope();
         var targets = scope.ServiceProvider.GetRequiredService<IMonitoringTargetRepository>();
         var all = await targets.GetAllAsync(ct);
 
         var desired = all.Where(t => t.IsEnabled)
-            .ToDictionary(t => $"{JobIdPrefix}{t.Id}", t => t.Id);
+            .ToDictionary(
+                t => $"{JobIdPrefix}{t.Id}",
+                t => (TargetId: t.Id, Cron: CronFor(t, defaultCron)));
 
-        foreach (var (jobId, targetId) in desired)
+        foreach (var (jobId, plan) in desired)
         {
-            if (_registered.Add(jobId))
+            // 間隔が変わった対象は登録し直す。こうしないと、画面で間隔を変えても
+            // Workerを再起動するまで古い間隔のまま動き続ける。
+            if (_registered.TryGetValue(jobId, out var currentCron) && currentCron == plan.Cron)
             {
-                recurringJobs.AddOrUpdate<ITargetCollectionService>(
-                    jobId,
-                    "collection",
-                    service => service.CollectAsync(targetId, CancellationToken.None),
-                    cron);
-                logger.LogInformation("Registered collection job for target {TargetId}", targetId);
+                continue;
             }
+
+            var targetId = plan.TargetId;
+            // キューは CollectionJob の [Queue] 属性で決まる。
+            // ここで渡す形は MySqlStorage が対応していない
+            recurringJobs.AddOrUpdate<CollectionJob>(
+                jobId,
+                job => job.RunAsync(targetId, CancellationToken.None),
+                plan.Cron);
+
+            logger.LogInformation(
+                "Registered collection job for target {TargetId} with cron {Cron}", targetId, plan.Cron);
+            _registered[jobId] = plan.Cron;
         }
 
-        foreach (var jobId in _registered.Where(id => !desired.ContainsKey(id)).ToList())
+        foreach (var jobId in _registered.Keys.Where(id => !desired.ContainsKey(id)).ToList())
         {
             recurringJobs.RemoveIfExists(jobId);
             _registered.Remove(jobId);
             logger.LogInformation("Removed collection job {JobId}", jobId);
         }
     }
+
+    /// <summary>
+    /// 対象ごとの収集間隔をcronへ直す。未設定の対象は全体の既定値を使う。
+    /// </summary>
+    private static string CronFor(MonitoringTarget target, string defaultCron) =>
+        target.CollectionIntervalSeconds is { } seconds
+            ? CollectionInterval.ToCron(seconds)
+            : defaultCron;
 }

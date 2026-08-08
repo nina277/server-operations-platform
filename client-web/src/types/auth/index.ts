@@ -42,3 +42,23 @@ export interface ChangePasswordResult {
   /** 他の端末のセッションを切ったか。 */
   otherSessionsRevoked: boolean
 }
+
+// --- 利用者管理 ---
+
+export interface ManagedUser {
+  id: number
+  username: string
+  role: UserRole
+  isActive: boolean
+  /** MFAが有効か。シークレットそのものは返らない。 */
+  mfaEnabled: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CreateUserRequest {
+  username: string
+  /** 初期パスワード。応答には返らない。 */
+  password: string
+  role: UserRole
+}

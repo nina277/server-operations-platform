@@ -21,11 +21,26 @@ public class FakeMetricSnapshotRepository : IMetricSnapshotRepository
             .Take(limit)
             .ToList());
 
+    public Task<Dictionary<long, DateTime>> GetLatestCollectedAtByTargetAsync(
+        CancellationToken ct = default) =>
+        Task.FromResult(Snapshots
+            .GroupBy(m => m.TargetId)
+            .ToDictionary(g => g.Key, g => g.Max(m => m.CollectedAt)));
+
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
 }
 
 public class FakeIncidentRepository : IIncidentRepository
 {
+    public Task<Dictionary<long, (int Count, IncidentSeverity Highest)>> CountActiveByTargetAsync(
+        CancellationToken ct = default) =>
+        Task.FromResult(Incidents
+            .Where(i => i.Status != IncidentStatus.Closed && i.Status != IncidentStatus.Resolved)
+            .GroupBy(i => i.TargetId)
+            .ToDictionary(
+                g => g.Key,
+                g => (g.Count(), g.Max(i => i.Severity))));
+
     public List<Incident> Incidents { get; } = [];
 
     public Task<Incident?> FindByIdAsync(long id, CancellationToken ct = default) =>

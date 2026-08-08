@@ -17,6 +17,17 @@ public class MetricSnapshotRepository(AppDbContext db) : IMetricSnapshotReposito
             .Take(limit)
             .ToListAsync(ct);
 
+    public async Task<Dictionary<long, DateTime>> GetLatestCollectedAtByTargetAsync(
+        CancellationToken ct = default)
+    {
+        var rows = await db.MetricSnapshots
+            .GroupBy(m => m.TargetId)
+            .Select(g => new { TargetId = g.Key, LatestAt = g.Max(m => m.CollectedAt) })
+            .ToListAsync(ct);
+
+        return rows.ToDictionary(r => r.TargetId, r => r.LatestAt);
+    }
+
     public Task SaveChangesAsync(CancellationToken ct = default) => db.SaveChangesAsync(ct);
 }
 
@@ -33,6 +44,23 @@ public class IncidentRepository(AppDbContext db) : IIncidentRepository
                 && i.Status != IncidentStatus.Closed)
             .OrderByDescending(i => i.LastOccurredAt)
             .FirstOrDefaultAsync(ct);
+
+    public async Task<Dictionary<long, (int Count, IncidentSeverity Highest)>>
+        CountActiveByTargetAsync(CancellationToken ct = default)
+    {
+        var rows = await db.Incidents
+            .Where(i => i.Status != IncidentStatus.Closed && i.Status != IncidentStatus.Resolved)
+            .GroupBy(i => i.TargetId)
+            .Select(g => new
+            {
+                TargetId = g.Key,
+                Count = g.Count(),
+                Highest = g.Max(i => i.Severity),
+            })
+            .ToListAsync(ct);
+
+        return rows.ToDictionary(r => r.TargetId, r => (r.Count, r.Highest));
+    }
 
     public async Task<(List<Incident> Items, long TotalCount)> SearchAsync(
         IncidentSearchCriteria criteria, CancellationToken ct = default)

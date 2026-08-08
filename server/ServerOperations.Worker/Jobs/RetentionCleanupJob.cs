@@ -9,6 +9,8 @@ namespace ServerOperations.Worker.Jobs;
 /// 保持期間を超えたデータを削除する定期ジョブ。
 /// 保持設定(SystemSetting)を読み、プロファイルまたは個別日数に従う。
 /// </summary>
+// キューは属性で指定する。AddOrUpdate に渡す形は MySqlStorage が対応していない
+[Hangfire.Queue("default")]
 public class RetentionCleanupJob(
     ISystemSettingRepository settings,
     IRetentionService retentionService,

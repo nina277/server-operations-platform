@@ -55,6 +55,17 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/operations/IncidentDetailView.vue'),
       },
       {
+        path: 'insights',
+        name: 'insights',
+        component: () => import('@/views/operations/InsightsView.vue'),
+      },
+      {
+        path: 'maintenance',
+        name: 'maintenance',
+        component: () => import('@/views/operations/MaintenanceView.vue'),
+        meta: { roles: ['OperatorAdmin'] },
+      },
+      {
         path: 'rules',
         name: 'rules',
         component: () => import('@/views/operations/RulesView.vue'),
@@ -80,6 +91,12 @@ const routes: RouteRecordRaw[] = [
         path: 'settings',
         name: 'settings',
         component: () => import('@/views/settings/SettingsView.vue'),
+        meta: { roles: ['OperatorAdmin'] },
+      },
+      {
+        path: 'users',
+        name: 'users',
+        component: () => import('@/views/settings/UsersView.vue'),
         meta: { roles: ['OperatorAdmin'] },
       },
       {

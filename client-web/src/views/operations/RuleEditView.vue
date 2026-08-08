@@ -70,6 +70,7 @@ const testInput = ref({
   containerName: '',
   restartCount: '',
   memoryUsagePercent: '',
+  cpuUsagePercent: '',
   diskUsagePercent: '',
   httpStatus: '',
   httpLatencyMs: '',
@@ -183,6 +184,7 @@ async function handleTest(): Promise<void> {
       containerName: toOptionalText(testInput.value.containerName),
       restartCount: toOptionalNumber(testInput.value.restartCount),
       memoryUsagePercent: toOptionalNumber(testInput.value.memoryUsagePercent),
+      cpuUsagePercent: toOptionalNumber(testInput.value.cpuUsagePercent),
       diskUsagePercent: toOptionalNumber(testInput.value.diskUsagePercent),
       httpStatus: toOptionalNumber(testInput.value.httpStatus),
       httpLatencyMs: toOptionalNumber(testInput.value.httpLatencyMs),
@@ -425,6 +427,10 @@ async function handleSubmit(): Promise<void> {
         <div class="form-field">
           <label for="test-memory">{{ t('rules.memoryUsagePercent') }}</label>
           <input id="test-memory" v-model="testInput.memoryUsagePercent" type="number" />
+        </div>
+        <div class="form-field">
+          <label for="test-cpu">{{ t('rules.cpuUsagePercent') }}</label>
+          <input id="test-cpu" v-model="testInput.cpuUsagePercent" type="number" />
         </div>
         <div class="form-field">
           <label for="test-disk">{{ t('rules.diskUsagePercent') }}</label>

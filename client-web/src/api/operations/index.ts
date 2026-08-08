@@ -7,6 +7,7 @@ import type {
   Approval,
   ConnectionTestResult,
   CreateApprovalRequest,
+  CreateMaintenanceWindowRequest,
   CreateRecoveryActionRequest,
   CreateTargetRequest,
   DashboardSummary,
@@ -17,8 +18,14 @@ import type {
   Incident,
   IncidentListQuery,
   IncidentLog,
+  IncidentNote,
   IncidentStatus,
+  MaintenanceWindow,
   MetricSnapshot,
+  OperationsInsights,
+  Recurrence,
+  Severity,
+  TargetDeletePreview,
   RecoveryAction,
   RecoveryActionDefinition,
   RediagnoseResult,
@@ -232,10 +239,12 @@ export async function searchNotifications(
   isRead: boolean | undefined,
   page: number,
   pageSize: number,
+  /** この重大度以上だけを返す。設定側の下限指定と考え方を揃える。 */
+  minimumSeverity?: Severity,
 ): Promise<PagedResult<AppNotification>> {
   return unwrap(
     await http.get<ApiResponse<PagedResult<AppNotification>>>('/api/v1/notifications', {
-      params: { isRead, page, pageSize },
+      params: { isRead, page, pageSize, minimumSeverity },
     }),
   )
 }
@@ -279,4 +288,75 @@ export async function updateAiEnabled(isEnabled: boolean): Promise<AiUsageSummar
   return unwrap(
     await http.patch<ApiResponse<AiUsageSummary>>('/api/v1/ai-usage/enabled', { isEnabled }),
   )
+}
+
+// --- 運用実績サマリ ---
+
+/**
+ * 期間を指定して運用実績を集計する。
+ * 日時はUTCのISO文字列で渡す(サーバー側の保存もUTCのため)。
+ */
+export async function fetchOperationsInsights(
+  from: string,
+  to: string,
+): Promise<OperationsInsights> {
+  return unwrap(
+    await http.get<ApiResponse<OperationsInsights>>('/api/v1/insights/operations', {
+      params: { from, to },
+    }),
+  )
+}
+
+// --- 障害の再発 ---
+
+export async function fetchRecurrence(incidentId: number): Promise<Recurrence> {
+  return unwrap(
+    await http.get<ApiResponse<Recurrence>>(`/api/v1/incidents/${incidentId}/recurrence`),
+  )
+}
+
+// --- インシデントの対応メモ ---
+
+export async function fetchIncidentNotes(incidentId: number): Promise<IncidentNote[]> {
+  return unwrap(
+    await http.get<ApiResponse<IncidentNote[]>>(`/api/v1/incidents/${incidentId}/notes`),
+  )
+}
+
+export async function addIncidentNote(incidentId: number, body: string): Promise<IncidentNote> {
+  return unwrap(
+    await http.post<ApiResponse<IncidentNote>>(`/api/v1/incidents/${incidentId}/notes`, { body }),
+  )
+}
+
+// --- メンテナンス期間 ---
+
+export async function fetchMaintenanceWindows(): Promise<MaintenanceWindow[]> {
+  return unwrap(await http.get<ApiResponse<MaintenanceWindow[]>>('/api/v1/maintenance-windows'))
+}
+
+export async function createMaintenanceWindow(
+  request: CreateMaintenanceWindowRequest,
+): Promise<MaintenanceWindow> {
+  return unwrap(
+    await http.post<ApiResponse<MaintenanceWindow>>('/api/v1/maintenance-windows', request),
+  )
+}
+
+export async function cancelMaintenanceWindow(id: number): Promise<MaintenanceWindow> {
+  return unwrap(
+    await http.post<ApiResponse<MaintenanceWindow>>(`/api/v1/maintenance-windows/${id}/cancel`),
+  )
+}
+
+// --- 監視対象の削除 ---
+
+export async function previewDeleteTarget(id: number): Promise<TargetDeletePreview> {
+  return unwrap(
+    await http.get<ApiResponse<TargetDeletePreview>>(`/api/v1/targets/${id}/delete-preview`),
+  )
+}
+
+export async function deleteTarget(id: number): Promise<void> {
+  await http.delete(`/api/v1/targets/${id}`)
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
@@ -8,14 +8,22 @@ import { extractErrorMessage } from '@/api/http'
 import {
   addNetworkCidr,
   deleteNetworkCidr,
+  fetchBackupGenerations,
   fetchBackupRuns,
+  fetchBackupSettings,
   fetchNetworkCidrs,
+  fetchNotificationSettings,
   fetchProfile,
   fetchRetention,
   fetchSecretStatus,
   previewRetention,
+  previewBackupRestore,
+  restoreBackup,
   runBackup,
+  sendTestNotification,
   testBackupConnection,
+  updateBackupSettings,
+  updateNotificationSettings,
   updateProfile,
   updateRetention,
   updateSecret,
@@ -24,14 +32,19 @@ import { fetchAiUsage, updateAiEnabled, updateAiLimits } from '@/api/operations'
 import { formatBytes, formatDateTime, resultTone } from '@/utils/format'
 import type { AiUsageSummary } from '@/types/operations'
 import type {
+  BackupGeneration,
+  BackupRestorePlan,
   BackupRun,
+  BackupSettings,
   NetworkCidr,
+  NotificationSettings,
   ProfileSettings,
   RetentionPreview,
   RetentionSettings,
   SecretStatus,
+  SeverityValue,
 } from '@/types/settings'
-import type { ConnectionTestResult } from '@/types/operations'
+import type { ConnectionTestResult, NotificationTestResult } from '@/types/operations'
 
 const { t, locale } = useI18n()
 
@@ -46,9 +59,25 @@ const secrets = ref<SecretStatus[]>([])
 const secretDrafts = ref<Record<string, string | null>>({})
 const backupRuns = ref<BackupRun[]>([])
 const aiUsage = ref<AiUsageSummary | null>(null)
+const notification = ref<NotificationSettings | null>(null)
+const backupSettings = ref<BackupSettings | null>(null)
+
+/**
+ * 宛先は1行1件で編集する。配列を直接v-modelに結ぶと
+ * 入力途中の空行が宛先として扱われるため、テキストで保持して保存時に整える。
+ */
+const recipientsText = ref('')
 
 const newCidr = ref({ cidr: '', description: '' })
+const notificationTestResults = ref<NotificationTestResult[] | null>(null)
 const backupResult = ref<ConnectionTestResult | null>(null)
+
+// --- 復元 ---
+// 復元は既存のデータを書き換える。**下見を通さずには実行させない。**
+const backupGenerations = ref<BackupGeneration[]>([])
+const selectedGeneration = ref<string>('')
+const restorePlan = ref<BackupRestorePlan | null>(null)
+const restoreError = ref<string | null>(null)
 
 const loading = ref(true)
 const busy = ref(false)
@@ -56,6 +85,7 @@ const message = ref<string | null>(null)
 const errorMessage = ref<string | null>(null)
 
 const retentionProfiles = ['compact', 'standard', 'long-term', 'custom'] as const
+const severities: SeverityValue[] = ['Critical', 'High', 'Medium', 'Low']
 
 async function loadAll(): Promise<void> {
   loading.value = true
@@ -69,6 +99,8 @@ async function loadAll(): Promise<void> {
     cidrResult,
     backupResult_,
     aiResult,
+    notificationResult,
+    backupSettingsResult,
     ...secretResults
   ] = await Promise.allSettled([
     fetchProfile(),
@@ -77,6 +109,8 @@ async function loadAll(): Promise<void> {
     fetchNetworkCidrs(),
     fetchBackupRuns(),
     fetchAiUsage(),
+    fetchNotificationSettings(),
+    fetchBackupSettings(),
     ...SECRET_KINDS.map((kind) => fetchSecretStatus(kind)),
   ])
 
@@ -86,6 +120,10 @@ async function loadAll(): Promise<void> {
   cidrs.value = cidrResult.status === 'fulfilled' ? cidrResult.value : []
   backupRuns.value = backupResult_.status === 'fulfilled' ? backupResult_.value : []
   aiUsage.value = aiResult.status === 'fulfilled' ? aiResult.value : null
+  notification.value = notificationResult.status === 'fulfilled' ? notificationResult.value : null
+  recipientsText.value = (notification.value?.emailRecipients ?? []).join('\n')
+  backupSettings.value =
+    backupSettingsResult.status === 'fulfilled' ? backupSettingsResult.value : null
 
   secrets.value = secretResults
     .map((result) => (result.status === 'fulfilled' ? result.value : null))
@@ -130,6 +168,39 @@ const handleSaveRetention = () =>
     }
   })
 
+/** 空行と前後の空白を落とし、宛先として使える行だけを取り出す。 */
+const recipients = computed(() =>
+  recipientsText.value
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0),
+)
+
+const handleSaveNotification = () =>
+  run(async () => {
+    if (notification.value) {
+      const saved = await updateNotificationSettings({
+        ...notification.value,
+        emailRecipients: recipients.value,
+      })
+      notification.value = saved
+      recipientsText.value = saved.emailRecipients.join('\n')
+    }
+  })
+
+/** 保存済みの設定と宛先へ1通送る。宛先はこの画面から指定できない。 */
+const handleTestNotification = () =>
+  run(async () => {
+    notificationTestResults.value = await sendTestNotification()
+  })
+
+const handleSaveBackupSettings = () =>
+  run(async () => {
+    if (backupSettings.value) {
+      backupSettings.value = await updateBackupSettings(backupSettings.value)
+    }
+  })
+
 const handleAddCidr = () =>
   run(async () => {
     await addNetworkCidr(
@@ -168,6 +239,45 @@ const handleRunBackup = () =>
   run(async () => {
     await runBackup()
     backupRuns.value = await fetchBackupRuns()
+  })
+
+const handleLoadGenerations = () =>
+  run(async () => {
+    restoreError.value = null
+    restorePlan.value = null
+    backupGenerations.value = await fetchBackupGenerations()
+    selectedGeneration.value = backupGenerations.value[0]?.objectKey ?? ''
+  })
+
+/** 下見。何も変更しない。 */
+const handlePreviewRestore = () =>
+  run(async () => {
+    restoreError.value = null
+    restorePlan.value = null
+    try {
+      restorePlan.value = await previewBackupRestore(selectedGeneration.value)
+    } catch (error) {
+      restoreError.value = error instanceof Error ? error.message : String(error)
+    }
+  })
+
+/**
+ * 復元を適用する。**既存のデータを書き換える。**
+ * 下見を見たうえで、もう一度確認を取る。
+ */
+const handleRestore = () =>
+  run(async () => {
+    if (!window.confirm(t('settings.restoreConfirm', { key: selectedGeneration.value }))) {
+      return
+    }
+    restoreError.value = null
+    try {
+      restorePlan.value = await restoreBackup(selectedGeneration.value)
+      // 復元で監視対象やルールが変わるため、画面の値を取り直す
+      backupRuns.value = await fetchBackupRuns()
+    } catch (error) {
+      restoreError.value = error instanceof Error ? error.message : String(error)
+    }
   })
 
 const handleToggleAi = (isEnabled: boolean) =>
@@ -302,6 +412,203 @@ const handleSaveAiLimits = () =>
         </template>
       </section>
 
+      <section
+        v-if="notification"
+        aria-labelledby="notification-heading"
+        class="section"
+        data-testid="notification-section"
+      >
+        <h2 id="notification-heading" class="section__title">{{ t('settings.notification') }}</h2>
+        <p class="form-field__help">{{ t('settings.notificationHelp') }}</p>
+
+        <form data-testid="notification-form" @submit.prevent="handleSaveNotification">
+          <div class="grid">
+            <div class="form-field">
+              <label for="notify-severity">{{ t('settings.minimumSeverity') }}</label>
+              <select
+                id="notify-severity"
+                v-model="notification.minimumSeverity"
+                aria-describedby="notify-severity-help"
+              >
+                <option v-for="value in severities" :key="value" :value="value">
+                  {{ t(`severity.${value.toLowerCase()}`) }}
+                </option>
+              </select>
+              <p id="notify-severity-help" class="form-field__help">
+                {{ t('settings.minimumSeverityHelp') }}
+              </p>
+            </div>
+
+            <div class="form-field">
+              <label for="notify-renotify">{{ t('settings.renotifyIntervalMinutes') }}</label>
+              <input
+                id="notify-renotify"
+                v-model.number="notification.renotifyIntervalMinutes"
+                type="number"
+                min="1"
+                max="10080"
+                aria-describedby="notify-renotify-help"
+              />
+              <p id="notify-renotify-help" class="form-field__help">
+                {{ t('settings.renotifyIntervalHelp') }}
+              </p>
+            </div>
+          </div>
+
+          <div class="form-field form-field--inline">
+            <input
+              id="notify-email-enabled"
+              v-model="notification.emailEnabled"
+              type="checkbox"
+              data-testid="email-enabled"
+            />
+            <label for="notify-email-enabled">{{ t('settings.emailEnabled') }}</label>
+          </div>
+
+          <div class="form-field">
+            <label for="notify-recipients">{{ t('settings.emailRecipients') }}</label>
+            <textarea
+              id="notify-recipients"
+              v-model="recipientsText"
+              rows="3"
+              :required="notification.emailEnabled"
+              aria-describedby="notify-recipients-help"
+            ></textarea>
+            <p id="notify-recipients-help" class="form-field__help">
+              {{ t('settings.emailRecipientsHelp') }}
+            </p>
+          </div>
+
+          <div class="grid">
+            <div class="form-field">
+              <label for="notify-smtp-host">{{ t('settings.smtpHost') }}</label>
+              <input
+                id="notify-smtp-host"
+                v-model="notification.smtpHost"
+                type="text"
+                maxlength="255"
+                :required="notification.emailEnabled"
+                aria-describedby="notify-smtp-host-help"
+              />
+              <p id="notify-smtp-host-help" class="form-field__help">
+                {{ t('settings.smtpHostHelp') }}
+              </p>
+            </div>
+
+            <div class="form-field">
+              <label for="notify-smtp-port">{{ t('settings.smtpPort') }}</label>
+              <input
+                id="notify-smtp-port"
+                v-model.number="notification.smtpPort"
+                type="number"
+                min="1"
+                max="65535"
+              />
+            </div>
+
+            <div class="form-field">
+              <label for="notify-smtp-username">{{ t('settings.smtpUsername') }}</label>
+              <input
+                id="notify-smtp-username"
+                v-model="notification.smtpUsername"
+                type="text"
+                autocomplete="off"
+                maxlength="255"
+              />
+            </div>
+
+            <div class="form-field">
+              <label for="notify-smtp-from">{{ t('settings.smtpFromAddress') }}</label>
+              <input
+                id="notify-smtp-from"
+                v-model="notification.smtpFromAddress"
+                type="email"
+                maxlength="255"
+                :required="notification.emailEnabled"
+              />
+            </div>
+          </div>
+
+          <div class="form-field form-field--inline">
+            <input
+              id="notify-starttls"
+              v-model="notification.smtpUseStartTls"
+              type="checkbox"
+              data-testid="smtp-starttls"
+            />
+            <label for="notify-starttls">{{ t('settings.smtpUseStartTls') }}</label>
+          </div>
+
+          <div class="form-field form-field--inline">
+            <input
+              id="notify-push-enabled"
+              v-model="notification.pushEnabled"
+              type="checkbox"
+              data-testid="push-enabled"
+            />
+            <label for="notify-push-enabled">{{ t('settings.pushEnabled') }}</label>
+          </div>
+
+          <div class="form-field">
+            <label for="notify-push-threshold">{{ t('settings.pushFailureThreshold') }}</label>
+            <input
+              id="notify-push-threshold"
+              v-model.number="notification.pushFailureThreshold"
+              type="number"
+              min="1"
+              max="100"
+              aria-describedby="notify-push-threshold-help"
+            />
+            <p id="notify-push-threshold-help" class="form-field__help">
+              {{ t('settings.pushFailureThresholdHelp') }}
+            </p>
+          </div>
+
+          <button
+            type="submit"
+            class="button button--primary"
+            :disabled="busy"
+            data-testid="save-notification"
+          >
+            {{ t('common.save') }}
+          </button>
+        </form>
+
+        <div class="test-send">
+          <button
+            type="button"
+            class="button"
+            :disabled="busy"
+            data-testid="test-notification"
+            @click="handleTestNotification"
+          >
+            {{ t('settings.testNotification') }}
+          </button>
+          <p class="form-field__help">{{ t('settings.testNotificationHelp') }}</p>
+        </div>
+
+        <ul
+          v-if="notificationTestResults"
+          class="test-results"
+          data-testid="notification-test-results"
+        >
+          <li v-for="result in notificationTestResults" :key="result.channel">
+            <StatusBadge
+              :tone="result.success ? 'low' : result.skipped ? 'medium' : 'critical'"
+              :label="
+                result.success
+                  ? t('settings.testSent')
+                  : result.skipped
+                    ? t('settings.testSkipped')
+                    : t('settings.testFailed')
+              "
+            />
+            <strong>{{ result.channel }}</strong>
+            <span v-if="result.message">{{ result.message }}</span>
+          </li>
+        </ul>
+      </section>
+
       <section aria-labelledby="cidrs-heading" class="section">
         <h2 id="cidrs-heading" class="section__title">{{ t('settings.networkCidrs') }}</h2>
         <p class="form-field__help">{{ t('settings.networkCidrsHelp') }}</p>
@@ -380,6 +687,84 @@ const handleSaveAiLimits = () =>
       <section aria-labelledby="backup-heading" class="section">
         <h2 id="backup-heading" class="section__title">{{ t('settings.backup') }}</h2>
 
+        <form
+          v-if="backupSettings"
+          data-testid="backup-settings-form"
+          @submit.prevent="handleSaveBackupSettings"
+        >
+          <h3 class="section__subtitle">{{ t('settings.backupSettings') }}</h3>
+
+          <div class="form-field form-field--inline">
+            <input
+              id="backup-enabled"
+              v-model="backupSettings.enabled"
+              type="checkbox"
+              data-testid="backup-enabled"
+            />
+            <label for="backup-enabled">{{ t('settings.backupEnabled') }}</label>
+          </div>
+
+          <div class="form-field">
+            <label for="backup-endpoint">{{ t('settings.backupEndpoint') }}</label>
+            <input
+              id="backup-endpoint"
+              v-model="backupSettings.endpoint"
+              type="url"
+              maxlength="255"
+              :required="backupSettings.enabled"
+              aria-describedby="backup-endpoint-help"
+            />
+            <p id="backup-endpoint-help" class="form-field__help">
+              {{ t('settings.backupEndpointHelp') }}
+            </p>
+          </div>
+
+          <div class="grid">
+            <div class="form-field">
+              <label for="backup-bucket">{{ t('settings.bucketName') }}</label>
+              <input
+                id="backup-bucket"
+                v-model="backupSettings.bucketName"
+                type="text"
+                maxlength="100"
+                :required="backupSettings.enabled"
+              />
+            </div>
+            <div class="form-field">
+              <label for="backup-prefix">{{ t('settings.prefix') }}</label>
+              <input id="backup-prefix" v-model="backupSettings.prefix" type="text" maxlength="100" />
+            </div>
+            <div class="form-field">
+              <label for="backup-region">{{ t('settings.region') }}</label>
+              <input id="backup-region" v-model="backupSettings.region" type="text" maxlength="50" />
+            </div>
+            <div class="form-field">
+              <label for="backup-generations">{{ t('settings.keepGenerations') }}</label>
+              <input
+                id="backup-generations"
+                v-model.number="backupSettings.keepGenerations"
+                type="number"
+                min="1"
+                max="365"
+              />
+            </div>
+          </div>
+
+          <div class="form-field form-field--inline">
+            <input id="backup-path-style" v-model="backupSettings.usePathStyle" type="checkbox" />
+            <label for="backup-path-style">{{ t('settings.usePathStyle') }}</label>
+          </div>
+
+          <button
+            type="submit"
+            class="button button--primary"
+            :disabled="busy"
+            data-testid="save-backup-settings"
+          >
+            {{ t('common.save') }}
+          </button>
+        </form>
+
         <div class="inline-form">
           <button type="button" class="button" :disabled="busy" @click="handleTestBackup">
             {{ t('targets.testConnection') }}
@@ -420,6 +805,95 @@ const handleSaveAiLimits = () =>
               </tr>
             </tbody>
           </table>
+        </div>
+
+        <h3 class="section__subtitle">{{ t('settings.restore') }}</h3>
+
+        <p class="form-field__help">{{ t('settings.restoreHelp') }}</p>
+
+        <div class="inline-form">
+          <button
+            type="button"
+            class="button"
+            :disabled="busy"
+            data-testid="load-generations"
+            @click="handleLoadGenerations"
+          >
+            {{ t('settings.loadGenerations') }}
+          </button>
+        </div>
+
+        <div v-if="backupGenerations.length > 0" class="form-field">
+          <label for="restore-generation">{{ t('settings.generation') }}</label>
+          <select id="restore-generation" v-model="selectedGeneration" :disabled="busy">
+            <option v-for="item in backupGenerations" :key="item.objectKey" :value="item.objectKey">
+              {{ formatDateTime(item.lastModified, locale) }} — {{ formatBytes(item.sizeBytes) }} —
+              {{ item.objectKey }}
+            </option>
+          </select>
+        </div>
+
+        <div v-if="selectedGeneration" class="inline-form">
+          <button
+            type="button"
+            class="button"
+            :disabled="busy"
+            data-testid="preview-restore"
+            @click="handlePreviewRestore"
+          >
+            {{ t('settings.previewRestore') }}
+          </button>
+          <button
+            type="button"
+            class="button button--danger"
+            :disabled="busy || !restorePlan || restorePlan.applied"
+            data-testid="apply-restore"
+            @click="handleRestore"
+          >
+            {{ t('settings.applyRestore') }}
+          </button>
+        </div>
+
+        <p v-if="restoreError" role="alert" class="result">
+          <StatusBadge tone="critical" :label="t('common.error')" />
+          <span>{{ restoreError }}</span>
+        </p>
+
+        <div v-if="restorePlan" data-testid="restore-plan">
+          <p role="status" class="result">
+            <StatusBadge
+              :tone="restorePlan.applied ? 'low' : 'neutral'"
+              :label="restorePlan.applied ? t('settings.restoreApplied') : t('settings.restorePreviewed')"
+            />
+            <span>{{ formatDateTime(restorePlan.snapshotCreatedAt, locale) }}</span>
+          </p>
+
+          <div class="table-scroll">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th scope="col">{{ t('settings.restoreCategory') }}</th>
+                  <th scope="col">{{ t('settings.restoreAdded') }}</th>
+                  <th scope="col">{{ t('settings.restoreUpdated') }}</th>
+                  <th scope="col">{{ t('settings.restoreUnchanged') }}</th>
+                  <th scope="col">{{ t('settings.restoreNotInBackup') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in restorePlan.items" :key="item.category">
+                  <th scope="row">{{ item.category }}</th>
+                  <td>{{ item.added }}</td>
+                  <td>{{ item.updated }}</td>
+                  <td>{{ item.unchanged }}</td>
+                  <td>{{ item.notInBackup }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <ul class="notes">
+            <li v-for="note in restorePlan.notes" :key="note">{{ note }}</li>
+          </ul>
         </div>
       </section>
 
@@ -601,6 +1075,24 @@ const handleSaveAiLimits = () =>
 
 .definition dt {
   color: var(--color-text-muted);
+}
+
+.test-send {
+  margin-top: var(--spacing-md);
+}
+
+.test-results {
+  list-style: none;
+  margin: var(--spacing-md) 0;
+  padding: 0;
+}
+
+.test-results li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-xs);
 }
 
 .secret-row {

@@ -17,12 +17,15 @@ import { useAsyncData } from '@/composables/useAsyncData'
 import { useNotificationsStore } from '@/stores/notifications'
 import { enablePushNotifications, describePushState, type PushState } from '@/services/push'
 import { formatDateTime, severityTone } from '@/utils/format'
-import type { DeviceToken } from '@/types/operations'
+import type { DeviceToken, Severity } from '@/types/operations'
 
 const { t, locale } = useI18n()
 const notificationsStore = useNotificationsStore()
 
 const filter = ref<'all' | 'unread' | 'read'>('all')
+/** 空文字は「重大度で絞らない」。設定側と揃えて「この重大度以上」で絞る。 */
+const minimumSeverity = ref<Severity | ''>('')
+const severities: Severity[] = ['Critical', 'High', 'Medium', 'Low']
 const page = ref(1)
 
 const { data, loading, error, forbidden, load } = useAsyncData(
@@ -31,6 +34,7 @@ const { data, loading, error, forbidden, load } = useAsyncData(
       filter.value === 'all' ? undefined : filter.value === 'read',
       page.value,
       20,
+      minimumSeverity.value === '' ? undefined : minimumSeverity.value,
     ),
   t('common.error'),
 )
@@ -52,7 +56,7 @@ onMounted(async () => {
   await Promise.all([load(), loadDevices(), notificationsStore.refreshUnreadCount()])
 })
 
-watch(filter, () => {
+watch([filter, minimumSeverity], () => {
   page.value = 1
   void load()
 })
@@ -120,6 +124,20 @@ async function handleRevokeDevice(id: number): Promise<void> {
       >
         {{ t(`notifications.${value}`) }}
       </button>
+
+      <div class="form-field form-field--compact">
+        <label for="notification-severity">{{ t('notifications.minimumSeverity') }}</label>
+        <select
+          id="notification-severity"
+          v-model="minimumSeverity"
+          data-testid="filter-severity"
+        >
+          <option value="">{{ t('incidents.allSeverities') }}</option>
+          <option v-for="value in severities" :key="value" :value="value">
+            {{ t(`severity.${value.toLowerCase()}`) }}
+          </option>
+        </select>
+      </div>
     </div>
 
     <AsyncState
@@ -245,6 +263,10 @@ async function handleRevokeDevice(id: number): Promise<void> {
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
+}
+
+.form-field--compact {
+  margin-bottom: 0;
 }
 
 .filters {

@@ -5,10 +5,10 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import AsyncState from '@/components/common/AsyncState.vue'
 import PaginationControls from '@/components/common/PaginationControls.vue'
-import { fetchAuditLogFilterOptions, searchAuditLogs } from '@/api/settings'
+import { exportAuditLogs, fetchAuditLogFilterOptions, searchAuditLogs } from '@/api/settings'
 import { useAsyncData } from '@/composables/useAsyncData'
 import { formatDateTime, resultTone } from '@/utils/format'
-import type { AuditLogFilterOptions, AuditResultValue } from '@/types/settings'
+import type { AuditLogFilterOptions, AuditLogQuery, AuditResultValue } from '@/types/settings'
 
 const { t, locale } = useI18n()
 
@@ -31,21 +31,56 @@ function toIsoUtc(value: string): string | undefined {
   return Number.isNaN(date.getTime()) ? undefined : date.toISOString()
 }
 
-const { data, loading, error, forbidden, load } = useAsyncData(() => {
+/**
+ * 一覧とCSV出力で同じ絞り込みを使う。片方だけ条件が違うと、
+ * 画面で見えている範囲と出力される範囲がずれる。
+ */
+function currentFilter(): AuditLogQuery {
   // 空文字は「絞り込まない」を意味するため、送らずに省く
   const selectedResult = result.value
 
-  return searchAuditLogs({
+  return {
     actorName: actorName.value.length > 0 ? actorName.value : undefined,
     targetType: targetType.value.length > 0 ? targetType.value : undefined,
     action: action.value.length > 0 ? action.value : undefined,
     result: selectedResult === '' ? undefined : selectedResult,
     from: toIsoUtc(from.value),
     to: toIsoUtc(to.value),
-    page: page.value,
-    pageSize: 20,
-  })
-}, t('common.error'))
+  }
+}
+
+const { data, loading, error, forbidden, load } = useAsyncData(
+  () => searchAuditLogs({ ...currentFilter(), page: page.value, pageSize: 20 }),
+  t('common.error'),
+)
+
+const exporting = ref(false)
+const exportError = ref<string | null>(null)
+
+/** CSVを取り出す。ブラウザにダウンロードさせるだけで、画面の状態は変えない。 */
+async function handleExport(): Promise<void> {
+  exporting.value = true
+  exportError.value = null
+
+  let url: string | null = null
+  try {
+    const blob = await exportAuditLogs(currentFilter())
+    url = URL.createObjectURL(blob)
+
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `audit-logs-${new Date().toISOString().slice(0, 10)}.csv`
+    link.click()
+  } catch {
+    exportError.value = t('auditExport.failed')
+  } finally {
+    // 解放しないとページを離れるまでBlobがメモリに残る
+    if (url !== null) {
+      URL.revokeObjectURL(url)
+    }
+    exporting.value = false
+  }
+}
 
 onMounted(async () => {
   await load()
@@ -67,6 +102,21 @@ function handleSubmit(): void {
 <template>
   <div>
     <PageHeader :title="t('nav.auditLogs')" />
+
+    <div class="export">
+      <button
+        type="button"
+        class="button"
+        :disabled="exporting"
+        data-testid="export-csv"
+        @click="handleExport"
+      >
+        {{ t('auditExport.export') }}
+      </button>
+      <p class="form-field__help">{{ t('auditExport.help') }}</p>
+    </div>
+
+    <p v-if="exportError" role="alert" class="message message--error">{{ exportError }}</p>
 
     <form class="filters" role="search" @submit.prevent="handleSubmit">
       <div class="form-field">
@@ -181,6 +231,22 @@ function handleSubmit(): void {
 </template>
 
 <style scoped>
+.export {
+  margin-bottom: var(--spacing-md);
+}
+
+.message {
+  padding: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+  border: 1px solid currentColor;
+  border-radius: var(--radius);
+}
+
+.message--error {
+  color: var(--color-critical);
+  background-color: var(--color-critical-bg);
+}
+
 .filters {
   display: flex;
   flex-wrap: wrap;

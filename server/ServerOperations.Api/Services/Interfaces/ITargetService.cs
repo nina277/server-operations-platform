@@ -16,4 +16,10 @@ public interface ITargetService
 
     /// <summary>登録済み対象への接続試験。任意URLは受け取らない。</summary>
     Task<ConnectionTestResultDto> TestConnectionAsync(long id, CancellationToken ct = default);
+
+    /// <summary>削除したときに一緒に消えるものの件数。削除はしない。</summary>
+    Task<TargetDeletePreviewDto> PreviewDeleteAsync(long id, CancellationToken ct = default);
+
+    /// <summary>対象と、それに紐づく収集値・インシデント・復旧履歴を削除する。</summary>
+    Task DeleteAsync(long id, CancellationToken ct = default);
 }

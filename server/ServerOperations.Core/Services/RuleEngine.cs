@@ -13,8 +13,11 @@ public record DiagnosticContext
 
     public int? RestartCount { get; init; }
 
+    public double? CpuUsagePercent { get; init; }
+
     public double? MemoryUsagePercent { get; init; }
 
+    /// <summary>ホストのファイルシステム使用率。node_exporterを設定した対象でのみ入る。</summary>
     public double? DiskUsagePercent { get; init; }
 
     public bool? HttpSuccess { get; init; }
@@ -30,6 +33,7 @@ public record DiagnosticContext
         "containerState" => ContainerState,
         "containerName" => ContainerName,
         "restartCount" => RestartCount,
+        "cpuUsagePercent" => CpuUsagePercent,
         "memoryUsagePercent" => MemoryUsagePercent,
         "diskUsagePercent" => DiskUsagePercent,
         "httpSuccess" => HttpSuccess,
@@ -41,7 +45,14 @@ public record DiagnosticContext
 }
 
 /// <summary>ルール一致結果。根拠(条件と実値)を含む。</summary>
-public record RuleMatch(DiagnosticRule Rule, string Rationale);
+/// <param name="MatchedValue">
+/// 一致した実値。稼働中コンテナのログ検知で障害署名の材料に使う。
+///
+/// ログ末尾をそのまま署名に使うと、行が流れるたびに署名が変わり、
+/// **同じ障害で収集のたびに別のインシデントが作られる。**
+/// 一致した部分だけを使えば、同じ障害は同じ署名に集約される。
+/// </param>
+public record RuleMatch(DiagnosticRule Rule, string Rationale, string? MatchedValue = null);
 
 public interface IRuleEngine
 {
@@ -59,18 +70,19 @@ public class RuleEngine : IRuleEngine
 
         foreach (var rule in rules.Where(r => r.IsEnabled).OrderBy(r => r.Priority).ThenBy(r => r.Id))
         {
-            var rationale = EvaluateRule(rule, context);
-            if (rationale is not null)
+            var result = EvaluateRule(rule, context);
+            if (result is not null)
             {
-                matches.Add(new RuleMatch(rule, rationale));
+                matches.Add(new RuleMatch(rule, result.Value.Rationale, result.Value.MatchedValue));
             }
         }
 
         return matches;
     }
 
-    /// <summary>一致した場合は根拠文字列、しなかった場合はnullを返す。</summary>
-    private static string? EvaluateRule(DiagnosticRule rule, DiagnosticContext context)
+    /// <summary>一致した場合は根拠と一致した実値、しなかった場合はnullを返す。</summary>
+    private static (string Rationale, string MatchedValue)? EvaluateRule(
+        DiagnosticRule rule, DiagnosticContext context)
     {
         try
         {
@@ -89,7 +101,8 @@ public class RuleEngine : IRuleEngine
         }
     }
 
-    private static string? EvaluateState(DiagnosticRule rule, DiagnosticContext context)
+    private static (string Rationale, string MatchedValue)? EvaluateState(
+        DiagnosticRule rule, DiagnosticContext context)
     {
         var condition = JsonSerializer.Deserialize<StateCondition>(rule.ConditionJson, JsonOptions);
         if (condition?.Field is null || condition.EqualsAny is not { Count: > 0 })
@@ -108,11 +121,12 @@ public class RuleEngine : IRuleEngine
             return null;
         }
 
-        return BuildRationale(rule.RationaleTemplate, condition.Field, value,
-            expected: string.Join("/", condition.EqualsAny));
+        return (BuildRationale(rule.RationaleTemplate, condition.Field, value,
+            expected: string.Join("/", condition.EqualsAny)), value);
     }
 
-    private static string? EvaluateThreshold(DiagnosticRule rule, DiagnosticContext context)
+    private static (string Rationale, string MatchedValue)? EvaluateThreshold(
+        DiagnosticRule rule, DiagnosticContext context)
     {
         var condition = JsonSerializer.Deserialize<ThresholdCondition>(rule.ConditionJson, JsonOptions);
         if (condition?.Field is null || condition.Operator is null)
@@ -154,11 +168,13 @@ public class RuleEngine : IRuleEngine
             return null;
         }
 
-        return BuildRationale(rule.RationaleTemplate, condition.Field, actual.ToString("0.##"),
-            expected: $"{condition.Operator} {condition.Value}");
+        var formatted = actual.ToString("0.##");
+        return (BuildRationale(rule.RationaleTemplate, condition.Field, formatted,
+            expected: $"{condition.Operator} {condition.Value}"), formatted);
     }
 
-    private static string? EvaluateRegex(DiagnosticRule rule, DiagnosticContext context)
+    private static (string Rationale, string MatchedValue)? EvaluateRegex(
+        DiagnosticRule rule, DiagnosticContext context)
     {
         var condition = JsonSerializer.Deserialize<RegexCondition>(rule.ConditionJson, JsonOptions);
         if (condition?.Field is null || string.IsNullOrEmpty(condition.Pattern))
@@ -179,8 +195,8 @@ public class RuleEngine : IRuleEngine
             return null;
         }
 
-        return BuildRationale(rule.RationaleTemplate, condition.Field, match.Value,
-            expected: condition.Pattern);
+        return (BuildRationale(rule.RationaleTemplate, condition.Field, match.Value,
+            expected: condition.Pattern), match.Value);
     }
 
     private static string BuildRationale(string template, string field, string value, string expected) =>

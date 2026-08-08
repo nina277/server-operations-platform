@@ -54,6 +54,8 @@ public record RuleTestRequest
 
     public int? RestartCount { get; init; }
 
+    public double? CpuUsagePercent { get; init; }
+
     public double? MemoryUsagePercent { get; init; }
 
     public double? DiskUsagePercent { get; init; }
@@ -78,6 +80,7 @@ public record RuleTestRequest
         ContainerState = ContainerState,
         ContainerName = ContainerName,
         RestartCount = RestartCount,
+        CpuUsagePercent = CpuUsagePercent,
         MemoryUsagePercent = MemoryUsagePercent,
         DiskUsagePercent = DiskUsagePercent,
         HttpSuccess = HttpSuccess,

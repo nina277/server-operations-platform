@@ -1,4 +1,5 @@
 using ServerOperations.Core.Adapters.Interfaces;
+using ServerOperations.Core.Services;
 
 namespace ServerOperations.Core.Adapters.Implementations;
 
@@ -19,15 +20,24 @@ public class AdapterTemplateCatalog : IAdapterTemplateCatalog
                 new TemplateInput(
                     "endpoint", "Docker APIエンドポイント", TemplateInputType.Url, Required: true, Secret: false,
                     "Docker Socket Proxy(例: http://socket-proxy:2375)またはTLS保護済みAPI(https://host:2376)のURL。docker.sockの直接マウントは使用しない。"),
+                new TemplateInput(
+                    "metricsEndpoint", "ホストメトリクスURL", TemplateInputType.Url, Required: false, Secret: false,
+                    "node_exporter のURL(例: http://192.168.1.20:9100/metrics)。設定するとホストのディスク使用率を収集する。読み取りのみで、ホスト上では何も実行しない。"),
             ],
-            RecommendedMonitors: ["container-state", "cpu", "memory", "restart-count", "log-excerpt"],
+            RecommendedMonitors: ["container-state", "restart-count", "log-excerpt", "cpu", "memory", "disk"],
             InitialRules: ["ContainerStopped", "MemoryPressure", "DiskPressure"],
             AllowedOperations: ["RESTART_ALLOWED_CONTAINER", "START_ALLOWED_CONTAINER", "STOP_ALLOWED_CONTAINER"],
             Capabilities:
             [
                 "docker.containers.list", "docker.container.inspect", "docker.container.logs",
+                "docker.container.stats",
                 "docker.container.start", "docker.container.stop", "docker.container.restart",
-                "metrics.cpu", "metrics.memory",
+                "host.metrics.read",
+            ],
+            CollectableMonitors:
+            [
+                MonitorKinds.ContainerState, MonitorKinds.LogExcerpt,
+                MonitorKinds.ResourceUsage, MonitorKinds.DiskUsage,
             ]),
         new(
             Id: DockerComposeApp,
@@ -42,14 +52,17 @@ public class AdapterTemplateCatalog : IAdapterTemplateCatalog
                     "composeProject", "Composeプロジェクト名", TemplateInputType.String, Required: true, Secret: false,
                     "監視対象のDocker Composeプロジェクト名(com.docker.compose.projectラベル)。"),
             ],
-            RecommendedMonitors: ["container-state", "restart-count", "log-excerpt"],
+            RecommendedMonitors: ["container-state", "restart-count", "log-excerpt", "cpu", "memory"],
             InitialRules: ["ContainerStopped"],
             AllowedOperations: ["RESTART_ALLOWED_CONTAINER", "START_ALLOWED_CONTAINER", "STOP_ALLOWED_CONTAINER"],
             Capabilities:
             [
                 "docker.containers.list", "docker.container.inspect", "docker.container.logs",
+                "docker.container.stats",
                 "docker.container.start", "docker.container.stop", "docker.container.restart",
-            ]),
+            ],
+            CollectableMonitors:
+                [MonitorKinds.ContainerState, MonitorKinds.LogExcerpt, MonitorKinds.ResourceUsage]),
         new(
             Id: WebSite,
             Name: "Web Site / API",
@@ -75,7 +88,9 @@ public class AdapterTemplateCatalog : IAdapterTemplateCatalog
             RecommendedMonitors: ["http-status", "http-latency"],
             InitialRules: ["HttpUnavailable"],
             AllowedOperations: ["RECHECK_HTTP_HEALTH"],
-            Capabilities: ["http.check"]),
+            Capabilities: ["http.check"],
+            // 死活と応答時間は同じ1回の呼び出しで取れるため、まとめて1つの単位にする
+            CollectableMonitors: [MonitorKinds.HttpCheck]),
     ];
 
     public IReadOnlyList<AdapterTemplate> GetAll() => Templates;

@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using ServerOperations.Api.DTOs.Auth;
 using ServerOperations.Api.Extensions;
 using ServerOperations.Core.Models.Auth;
+using ServerOperations.Core.Services;
 using ServerOperations.Api.Services.Implementations;
 using ServerOperations.Api.Tests.Fakes;
 
@@ -15,13 +16,18 @@ public class AuthServiceTests
     private readonly FakeUserRepository _users = new();
     private readonly FakeRefreshTokenRepository _refreshTokens;
 
-    public AuthServiceTests()
-    {
-        _refreshTokens = new FakeRefreshTokenRepository(_users);
-    }
     private readonly FakeAuditService _audit = new();
     private readonly FakeMfaService _mfa = new();
     private readonly TestTimeProvider _time = new(BaseTime);
+
+    /// <summary>制限そのものは LoginThrottleTests で確かめる。ここでは同じ時計を共有する。</summary>
+    private readonly LoginThrottle _throttle;
+
+    public AuthServiceTests()
+    {
+        _refreshTokens = new FakeRefreshTokenRepository(_users);
+        _throttle = new LoginThrottle(_time);
+    }
 
     private AuthService CreateSut()
     {
@@ -36,7 +42,7 @@ public class AuthServiceTests
         var tokenService = new JwtTokenService(options, _time);
 
         return new AuthService(
-            _users, _refreshTokens, tokenService, _mfa, _audit, options, _time, accessor);
+            _users, _refreshTokens, tokenService, _mfa, _audit, options, _throttle, _time, accessor);
     }
 
     private User AddUser(string username = "admin", string password = "correct-password", bool mfaEnabled = false)
@@ -368,6 +374,174 @@ public class AuthServiceTests
         {
             Assert.DoesNotContain("current-password-1", entry.Details ?? string.Empty);
             Assert.DoesNotContain("brand-new-password-1", entry.Details ?? string.Empty);
+        }
+    }
+
+    // --- ログイン試行の制限 ---
+
+    [Fact]
+    public async Task 失敗が続いたら受け付けなくなる()
+    {
+        AddUser();
+        var sut = CreateSut();
+
+        for (var i = 0; i <= LoginThrottle.MaxFailuresPerUser; i++)
+        {
+            await Assert.ThrowsAsync<AppException>(() =>
+                sut.LoginAsync(new LoginRequest { Username = "admin", Password = "wrong" }));
+        }
+
+        var ex = await Assert.ThrowsAsync<AppException>(() =>
+            sut.LoginAsync(new LoginRequest { Username = "admin", Password = "wrong" }));
+
+        Assert.Equal(StatusCodes.Status429TooManyRequests, ex.StatusCode);
+        Assert.Equal("too_many_attempts", ex.Code);
+    }
+
+    [Fact]
+    public async Task 遮断中は正しいパスワードでも受け付けない()
+    {
+        // 判定を認証情報より先に行う。後にすると、止まるまでの時間の差で
+        // 利用者名の存在を推測できてしまう。
+        AddUser();
+        var sut = CreateSut();
+
+        for (var i = 0; i <= LoginThrottle.MaxFailuresPerUser; i++)
+        {
+            await Assert.ThrowsAsync<AppException>(() =>
+                sut.LoginAsync(new LoginRequest { Username = "admin", Password = "wrong" }));
+        }
+
+        var ex = await Assert.ThrowsAsync<AppException>(() =>
+            sut.LoginAsync(new LoginRequest { Username = "admin", Password = "correct-password" }));
+
+        Assert.Equal("too_many_attempts", ex.Code);
+    }
+
+    [Fact]
+    public async Task 遮断を監査に残す()
+    {
+        AddUser();
+        var sut = CreateSut();
+
+        for (var i = 0; i <= LoginThrottle.MaxFailuresPerUser; i++)
+        {
+            await Assert.ThrowsAsync<AppException>(() =>
+                sut.LoginAsync(new LoginRequest { Username = "admin", Password = "wrong" }));
+        }
+
+        await Assert.ThrowsAsync<AppException>(() =>
+            sut.LoginAsync(new LoginRequest { Username = "admin", Password = "wrong" }));
+
+        Assert.Contains(_audit.Entries,
+            e => e.Action == "auth.login.throttled" && e.Result == AuditResult.Denied);
+    }
+
+    [Fact]
+    public async Task 遮断の監査にパスワードを載せない()
+    {
+        AddUser();
+        var sut = CreateSut();
+
+        for (var i = 0; i <= LoginThrottle.MaxFailuresPerUser + 1; i++)
+        {
+            await Assert.ThrowsAsync<AppException>(() =>
+                sut.LoginAsync(new LoginRequest { Username = "admin", Password = "secret-guess" }));
+        }
+
+        Assert.All(_audit.Entries,
+            e => Assert.DoesNotContain("secret-guess", e.Details ?? string.Empty));
+    }
+
+    [Fact]
+    public async Task 待ち時間が過ぎれば再び受け付ける()
+    {
+        AddUser();
+        var sut = CreateSut();
+
+        for (var i = 0; i <= LoginThrottle.MaxFailuresPerUser; i++)
+        {
+            await Assert.ThrowsAsync<AppException>(() =>
+                sut.LoginAsync(new LoginRequest { Username = "admin", Password = "wrong" }));
+        }
+
+        _time.Advance(TimeSpan.FromMinutes(2));
+        var pair = await sut.LoginAsync(
+            new LoginRequest { Username = "admin", Password = "correct-password" });
+
+        Assert.NotEmpty(pair.AccessToken);
+    }
+
+    [Fact]
+    public async Task 成功したら数え直す()
+    {
+        AddUser();
+        var sut = CreateSut();
+
+        for (var i = 0; i < LoginThrottle.MaxFailuresPerUser; i++)
+        {
+            await Assert.ThrowsAsync<AppException>(() =>
+                sut.LoginAsync(new LoginRequest { Username = "admin", Password = "wrong" }));
+        }
+
+        await sut.LoginAsync(new LoginRequest { Username = "admin", Password = "correct-password" });
+
+        // 数え直されているので、もう一度失敗しても遮断されない
+        var ex = await Assert.ThrowsAsync<AppException>(() =>
+            sut.LoginAsync(new LoginRequest { Username = "admin", Password = "wrong" }));
+        Assert.Equal("invalid_credentials", ex.Code);
+    }
+
+    [Fact]
+    public async Task 存在しない利用者名でも同じ回数で遮断する()
+    {
+        // 存在する名前だけ遮断されると、応答の違いで存在が分かる
+        var sut = CreateSut();
+
+        for (var i = 0; i <= LoginThrottle.MaxFailuresPerUser; i++)
+        {
+            await Assert.ThrowsAsync<AppException>(() =>
+                sut.LoginAsync(new LoginRequest { Username = "ghost", Password = "wrong" }));
+        }
+
+        var ex = await Assert.ThrowsAsync<AppException>(() =>
+            sut.LoginAsync(new LoginRequest { Username = "ghost", Password = "wrong" }));
+
+        Assert.Equal("too_many_attempts", ex.Code);
+    }
+
+    [Fact]
+    public async Task MFAコードの誤りも回数に数える()
+    {
+        // 6桁のコードは総当たりが現実的なため、数えないと意味がない
+        AddUser(mfaEnabled: true);
+        _mfa.ValidateResult = false;
+        var sut = CreateSut();
+
+        for (var i = 0; i <= LoginThrottle.MaxFailuresPerUser; i++)
+        {
+            await Assert.ThrowsAsync<AppException>(() => sut.LoginAsync(
+                new LoginRequest { Username = "admin", Password = "correct-password", TotpCode = "000000" }));
+        }
+
+        var ex = await Assert.ThrowsAsync<AppException>(() => sut.LoginAsync(
+            new LoginRequest { Username = "admin", Password = "correct-password", TotpCode = "000000" }));
+
+        Assert.Equal("too_many_attempts", ex.Code);
+    }
+
+    [Fact]
+    public async Task MFAコード未入力は回数に数えない()
+    {
+        // 入力の途中であり、正しいパスワードを持つ本人を締め出さない
+        AddUser(mfaEnabled: true);
+        var sut = CreateSut();
+
+        for (var i = 0; i < LoginThrottle.MaxFailuresPerUser + 5; i++)
+        {
+            var pending = await Assert.ThrowsAsync<AppException>(() =>
+                sut.LoginAsync(new LoginRequest { Username = "admin", Password = "correct-password" }));
+            Assert.Equal("mfa_required", pending.Code);
         }
     }
 }

@@ -23,7 +23,7 @@ namespace ServerOperations.Core.Migrations
                     CollectedAt = table.Column<DateTime>(type: "datetime(6)", nullable: false),
                     Source = table.Column<string>(type: "varchar(200)", maxLength: 200, nullable: false)
                         .Annotation("MySql:CharSet", "utf8mb4"),
-                    MaskedContent = table.Column<string>(type: "varchar(16000)", maxLength: 16000, nullable: false)
+                    MaskedContent = table.Column<string>(type: "longtext", nullable: false)
                         .Annotation("MySql:CharSet", "utf8mb4")
                 },
                 constraints: table =>
@@ -76,7 +76,7 @@ namespace ServerOperations.Core.Migrations
                         .Annotation("MySql:CharSet", "utf8mb4"),
                     Status = table.Column<string>(type: "varchar(16)", maxLength: 16, nullable: false)
                         .Annotation("MySql:CharSet", "utf8mb4"),
-                    PayloadJson = table.Column<string>(type: "varchar(16000)", maxLength: 16000, nullable: true)
+                    PayloadJson = table.Column<string>(type: "longtext", nullable: true)
                         .Annotation("MySql:CharSet", "utf8mb4"),
                     ErrorMessage = table.Column<string>(type: "varchar(1000)", maxLength: 1000, nullable: true)
                         .Annotation("MySql:CharSet", "utf8mb4")

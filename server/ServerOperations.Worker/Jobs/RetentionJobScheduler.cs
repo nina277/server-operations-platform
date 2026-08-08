@@ -16,7 +16,6 @@ public class RetentionJobScheduler(
 
         recurringJobs.AddOrUpdate<RetentionCleanupJob>(
             JobId,
-            "default",
             job => job.RunAsync(CancellationToken.None),
             cron);
 

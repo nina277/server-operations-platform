@@ -88,6 +88,44 @@ services:
     networks:
       - lab
 
+  # SC-06(ホストのディスク使用率): 監視システムが読む node_exporter。
+  #
+  # Docker APIはホストのファイルシステム容量を返さないため、
+  # この口が無いとディスク使用率の収集は一度も確かめられない。
+  #
+  # ホストの / を読み取り専用でマウントする。これは容量を読むために避けられないが、
+  # **docker.sock は渡さない**。node_exporter は値を返すだけで、
+  # ホストに対して何も実行できない。
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    restart: unless-stopped
+    command:
+      - --path.rootfs=/host
+      # コンテナのオーバーレイ層は実ディスクの残量を表さないため出さない
+      - --collector.filesystem.mount-points-exclude=^/(host/)?(dev|proc|sys|run|var/lib/docker/.+)($$|/)
+    volumes:
+      - /:/host:ro,rslave
+    ports:
+      # 監視システムから到達できるように公開する(LAN内限定で運用すること)
+      - "${NODE_EXPORTER_PORT:-19100}:9100"
+    networks:
+      - lab
+
+  # SC-07(リソース逼迫): CPUとメモリの使用率を上げるだけのコンテナ。
+  # 上限を付けてあるため、ホストや他のコンテナへは影響しない。
+  lab-load:
+    image: alpine:3.20
+    restart: "no"
+    command: ["sh", "-c", "echo 'lab-load ready (run scenario script to raise usage)'; sleep infinity"]
+    mem_limit: 64m
+    memswap_limit: 64m
+    cpus: 0.5
+    tmpfs:
+      # メモリ上限の内側に収まる大きさにする(満たしてもOOMにしない)
+      - /load:size=48m
+    networks:
+      - lab
+
   # SC-05(未知ログ)/ ST-AI(プロンプト注入): 未登録のエラーログを出す
   lab-unknown-log:
     image: alpine:3.20

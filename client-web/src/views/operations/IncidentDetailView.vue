@@ -8,13 +8,16 @@ import AsyncState from '@/components/common/AsyncState.vue'
 import ConfirmActionDialog from '@/components/common/ConfirmActionDialog.vue'
 import { extractErrorMessage } from '@/api/http'
 import {
+  addIncidentNote,
   createApproval,
   createRecoveryAction,
   fetchApprovals,
   fetchDiagnoses,
   fetchIncident,
   fetchRecoveryActionCatalog,
+  fetchIncidentNotes,
   fetchRecoveryActions,
+  fetchRecurrence,
   fetchTarget,
   fetchTargetCapabilities,
   rediagnose,
@@ -33,7 +36,9 @@ import {
 import type {
   Approval,
   Diagnosis,
+  IncidentNote,
   IncidentStatus,
+  Recurrence,
   RecoveryAction,
   RecoveryActionDefinition,
   Target,
@@ -57,6 +62,9 @@ const actions = ref<RecoveryAction[]>([])
 const catalog = ref<RecoveryActionDefinition[]>([])
 const target = ref<Target | null>(null)
 const capabilities = ref<TargetCapabilities | null>(null)
+const notes = ref<IncidentNote[]>([])
+const recurrence = ref<Recurrence | null>(null)
+const noteDraft = ref('')
 
 const statuses: IncidentStatus[] = ['Open', 'Acknowledged', 'Recovering', 'Resolved', 'Closed']
 const selectedStatus = ref<IncidentStatus | ''>('')
@@ -108,17 +116,22 @@ function usableApprovals(actionId: string): Approval[] {
 }
 
 async function loadRelated(): Promise<void> {
-  const [diagnosisList, approvalList, actionList, catalogList] = await Promise.allSettled([
-    fetchDiagnoses(incidentId.value),
-    fetchApprovals(incidentId.value),
-    fetchRecoveryActions(incidentId.value),
-    fetchRecoveryActionCatalog(),
-  ])
+  const [diagnosisList, approvalList, actionList, catalogList, noteList, recurrenceResult] =
+    await Promise.allSettled([
+      fetchDiagnoses(incidentId.value),
+      fetchApprovals(incidentId.value),
+      fetchRecoveryActions(incidentId.value),
+      fetchRecoveryActionCatalog(),
+      fetchIncidentNotes(incidentId.value),
+      fetchRecurrence(incidentId.value),
+    ])
 
   diagnoses.value = diagnosisList.status === 'fulfilled' ? diagnosisList.value : []
   approvals.value = approvalList.status === 'fulfilled' ? approvalList.value : []
   actions.value = actionList.status === 'fulfilled' ? actionList.value : []
   catalog.value = catalogList.status === 'fulfilled' ? catalogList.value : []
+  notes.value = noteList.status === 'fulfilled' ? noteList.value : []
+  recurrence.value = recurrenceResult.status === 'fulfilled' ? recurrenceResult.value : null
 
   if (data.value) {
     const [targetResult, capabilityResult] = await Promise.allSettled([
@@ -156,6 +169,29 @@ async function handleStatusChange(): Promise<void> {
   } catch (e) {
     actionError.value = extractErrorMessage(e, t('common.error'))
     selectedStatus.value = data.value.status
+  } finally {
+    busy.value = false
+  }
+}
+
+/** 対応メモを追加する。書き換えと削除の口は無いため、追加のみ。 */
+async function handleAddNote(): Promise<void> {
+  const body = noteDraft.value.trim()
+  if (body.length === 0) {
+    return
+  }
+
+  busy.value = true
+  actionError.value = null
+  actionMessage.value = null
+
+  try {
+    await addIncidentNote(incidentId.value, body)
+    noteDraft.value = ''
+    notes.value = await fetchIncidentNotes(incidentId.value)
+    actionMessage.value = t('common.saved')
+  } catch (e) {
+    actionError.value = extractErrorMessage(e, t('common.error'))
   } finally {
     busy.value = false
   }
@@ -530,6 +566,79 @@ const resourceInputs = ref<Record<string, string>>({})
               </tbody>
             </table>
           </div>
+        </section>
+
+        <section
+          v-if="recurrence"
+          aria-labelledby="recurrence-heading"
+          class="section"
+          data-testid="recurrence"
+        >
+          <h2 id="recurrence-heading" class="section__title">{{ t('recurrence.title') }}</h2>
+
+          <p v-if="recurrence.totalCount === 0" class="muted">{{ t('recurrence.firstTime') }}</p>
+
+          <dl v-else class="definition">
+            <dt>{{ t('incidents.occurrenceCount') }}</dt>
+            <dd>
+              {{ t('recurrence.total', { count: recurrence.totalCount }) }}
+              <template v-if="recurrence.resolvedCount > 0">
+                ({{ t('recurrence.resolved', { count: recurrence.resolvedCount }) }})
+              </template>
+            </dd>
+
+            <template v-if="recurrence.previousOccurredAt">
+              <dt>{{ t('recurrence.previous') }}</dt>
+              <dd>{{ formatDateTime(recurrence.previousOccurredAt, locale) }}</dd>
+            </template>
+
+            <template v-if="recurrence.lastSuccessfulActionId">
+              <dt>{{ t('recurrence.lastSuccessful') }}</dt>
+              <dd data-testid="last-successful-action">
+                {{ recurrence.lastSuccessfulActionId }}
+                <template v-if="recurrence.lastSuccessfulAt">
+                  ({{ formatDateTime(recurrence.lastSuccessfulAt, locale) }})
+                </template>
+              </dd>
+            </template>
+          </dl>
+        </section>
+
+        <section aria-labelledby="notes-heading" class="section" data-testid="incident-notes">
+          <h2 id="notes-heading" class="section__title">{{ t('incidentNotes.title') }}</h2>
+          <p class="form-field__help">{{ t('incidentNotes.description') }}</p>
+
+          <form v-if="auth.isAdmin" data-testid="note-form" @submit.prevent="handleAddNote">
+            <div class="form-field">
+              <label for="note-body" class="sr-only">{{ t('incidentNotes.title') }}</label>
+              <textarea
+                id="note-body"
+                v-model="noteDraft"
+                rows="3"
+                maxlength="4000"
+                :placeholder="t('incidentNotes.placeholder')"
+              ></textarea>
+            </div>
+            <button
+              type="submit"
+              class="button"
+              :disabled="busy || noteDraft.trim().length === 0"
+              data-testid="add-note"
+            >
+              {{ t('incidentNotes.add') }}
+            </button>
+          </form>
+
+          <ul v-if="notes.length > 0" class="cards">
+            <li v-for="note in notes" :key="note.id" class="card">
+              <p class="card__head">
+                <strong>{{ note.authorName }}</strong>
+                <span class="muted">{{ formatDateTime(note.createdAt, locale) }}</span>
+              </p>
+              <p class="card__body">{{ note.body }}</p>
+            </li>
+          </ul>
+          <p v-else class="muted">{{ t('incidentNotes.empty') }}</p>
         </section>
 
         <ConfirmActionDialog

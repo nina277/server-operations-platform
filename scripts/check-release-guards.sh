@@ -59,8 +59,11 @@ fi
 
 lab_compose="${ROOT_DIR}/deploy/lab-aioops/docker-compose.yml"
 if [ -f "${lab_compose}" ]; then
-  # docker.sock を持つサービスを列挙し、socket-proxy 以外が持っていないか見る
+  # docker.sock を持つサービスを列挙し、socket-proxy 以外が持っていないか見る。
+  # コメント行は見ない。「docker.sock は渡さない」と書いた説明を
+  # マウントと取り違えないため(実際にそれで誤検知した)。
   holder=$(awk '
+    /^[[:space:]]*#/ { next }
     /^  [a-zA-Z0-9_-]+:/ { service = $1; sub(":", "", service) }
     /docker\.sock/ { print service }
   ' "${lab_compose}" | sort -u)
@@ -112,6 +115,52 @@ if command -v dotnet >/dev/null 2>&1; then
   fi
 else
   echo "SKIP: dotnet が無いため依存の脆弱性を確認できません。" >&2
+fi
+
+# --- 6. 運用上の歯止めがComposeに入っていること ---
+#
+# healthcheck が無いと、ハングしたコンテナが放置される。
+# ログ上限が無いと、監視システム自身がディスクを埋める。
+# メモリ上限が無いと、暴走時にホストごと巻き込む。
+
+compose="${ROOT_DIR}/deploy/docker-compose.yml"
+services="nginx web api worker mysql"
+
+for key in healthcheck logging mem_limit; do
+  missing=""
+  for svc in ${services}; do
+    # 対象サービスのブロックだけを切り出して確認する
+    block=$(awk -v svc="  ${svc}:" '
+      $0 == svc { inside = 1; next }
+      /^  [a-z]/ { inside = 0 }
+      inside { print }
+    ' "${compose}")
+
+    if ! echo "${block}" | grep -q "${key}"; then
+      missing="${missing} ${svc}"
+    fi
+  done
+
+  if [ -n "${missing}" ]; then
+    fail "${key} が設定されていないサービスがあります:${missing}"
+  else
+    ok "すべてのサービスに ${key} が設定されています。"
+  fi
+done
+
+# --- 7. セキュリティヘッダがnginxに入っていること ---
+
+nginx_conf="${ROOT_DIR}/deploy/nginx/default.conf"
+for header in X-Content-Type-Options X-Frame-Options Content-Security-Policy Referrer-Policy; do
+  if ! grep -q "${header}" "${nginx_conf}"; then
+    fail "nginxに ${header} が設定されていません。"
+  fi
+done
+
+if grep -q "limit_req_zone" "${nginx_conf}"; then
+  ok "nginxにセキュリティヘッダとログイン試行の制限が入っています。"
+else
+  fail "nginxにログイン試行の制限(limit_req)が設定されていません。"
 fi
 
 echo

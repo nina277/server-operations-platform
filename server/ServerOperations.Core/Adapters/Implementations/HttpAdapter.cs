@@ -40,7 +40,8 @@ public class HttpAdapter(IHttpClientFactory httpClientFactory, ILogger<HttpAdapt
             if (status == options.ExpectedStatus)
             {
                 return new AdapterConnectionResult(
-                    true, $"HTTP {status} を受信しました(期待どおり)。", stopwatch.ElapsedMilliseconds);
+                    true, $"HTTP {status} を受信しました(期待どおり)。", stopwatch.ElapsedMilliseconds,
+                    StatusCode: status);
             }
 
             var note = status is >= 300 and < 400
@@ -48,7 +49,7 @@ public class HttpAdapter(IHttpClientFactory httpClientFactory, ILogger<HttpAdapt
                 : "期待したステータスコードと一致しません。";
             return new AdapterConnectionResult(
                 false, $"HTTP {status} を受信しました(期待: {options.ExpectedStatus})。{note}",
-                stopwatch.ElapsedMilliseconds);
+                stopwatch.ElapsedMilliseconds, StatusCode: status);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {

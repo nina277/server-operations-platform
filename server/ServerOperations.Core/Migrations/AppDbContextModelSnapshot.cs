@@ -597,8 +597,7 @@ namespace ServerOperations.Core.Migrations
 
                     b.Property<string>("MaskedContent")
                         .IsRequired()
-                        .HasMaxLength(16000)
-                        .HasColumnType("varchar(16000)");
+                        .HasColumnType("longtext");
 
                     b.Property<string>("Source")
                         .IsRequired()
@@ -615,6 +614,86 @@ namespace ServerOperations.Core.Migrations
                     b.HasIndex("TargetId", "CollectedAt");
 
                     b.ToTable("incident_logs", (string)null);
+                });
+
+            modelBuilder.Entity("ServerOperations.Core.Models.Operations.IncidentNote", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("AuthorName")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<long?>("AuthorUserId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("varchar(4000)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<long>("IncidentId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IncidentId", "CreatedAt");
+
+                    b.ToTable("incident_notes", (string)null);
+                });
+
+            modelBuilder.Entity("ServerOperations.Core.Models.Operations.MaintenanceWindow", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime?>("CancelledAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<long?>("CreatedByUserId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("EndsAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("varchar(200)");
+
+                    b.Property<DateTime>("StartsAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<bool>("SuppressAutoRecovery")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<bool>("SuppressNotifications")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<long?>("TargetId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EndsAt");
+
+                    b.HasIndex("TargetId", "EndsAt");
+
+                    b.ToTable("maintenance_windows", (string)null);
                 });
 
             modelBuilder.Entity("ServerOperations.Core.Models.Operations.MetricSnapshot", b =>
@@ -638,8 +717,7 @@ namespace ServerOperations.Core.Migrations
                         .HasColumnType("varchar(32)");
 
                     b.Property<string>("PayloadJson")
-                        .HasMaxLength(16000)
-                        .HasColumnType("varchar(16000)");
+                        .HasColumnType("longtext");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -672,6 +750,9 @@ namespace ServerOperations.Core.Migrations
                     b.Property<bool>("AutoRecoveryEnabled")
                         .HasColumnType("tinyint(1)");
 
+                    b.Property<int?>("CollectionIntervalSeconds")
+                        .HasColumnType("int");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime(6)");
 
@@ -681,6 +762,9 @@ namespace ServerOperations.Core.Migrations
                     b.Property<string>("Description")
                         .HasMaxLength(500)
                         .HasColumnType("varchar(500)");
+
+                    b.Property<string>("EnabledMonitorsJson")
+                        .HasColumnType("longtext");
 
                     b.Property<bool>("IsEnabled")
                         .HasColumnType("tinyint(1)");
@@ -1144,6 +1228,27 @@ namespace ServerOperations.Core.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("ServerOperations.Core.Models.Operations.IncidentNote", b =>
+                {
+                    b.HasOne("ServerOperations.Core.Models.Operations.Incident", "Incident")
+                        .WithMany()
+                        .HasForeignKey("IncidentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Incident");
+                });
+
+            modelBuilder.Entity("ServerOperations.Core.Models.Operations.MaintenanceWindow", b =>
+                {
+                    b.HasOne("ServerOperations.Core.Models.Operations.MonitoringTarget", "Target")
+                        .WithMany()
+                        .HasForeignKey("TargetId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.Navigation("Target");
                 });
 
             modelBuilder.Entity("ServerOperations.Core.Models.Operations.NotificationDelivery", b =>

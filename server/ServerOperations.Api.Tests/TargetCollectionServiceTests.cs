@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Logging.Abstractions;
+using ServerOperations.Core.Adapters.Implementations;
 using ServerOperations.Core.Adapters.Interfaces;
 using ServerOperations.Core.Models.Operations;
 using ServerOperations.Core.Services;
@@ -18,6 +19,7 @@ public class TargetCollectionServiceTests
     private readonly FakeIncidentLogRepository _logs = new();
     private readonly FakeDockerAdapter _docker = new();
     private readonly FakeHttpAdapter _http = new();
+    private readonly FakeHostMetricsAdapter _hostMetrics = new();
     private readonly TestTimeProvider _time = new(BaseTime);
 
     private readonly Microsoft.AspNetCore.DataProtection.EphemeralDataProtectionProvider _dataProtection = new();
@@ -25,8 +27,14 @@ public class TargetCollectionServiceTests
     private readonly FakeNotificationService _notifications = new();
     private readonly FakeAutoRecoveryService _autoRecovery = new();
 
+    // しきい値の判定は本物を使う。差し替えると「ルールに当たったか」を確かめられない
+    private readonly FakeDiagnosticRuleRepository _rules = new();
+
     private TargetCollectionService CreateSut() => new(
-        _targets, _snapshots, _incidents, _logs, _docker, _http, _dataProtection, _diagnosis, _notifications, _autoRecovery, _time,
+        _targets, _snapshots, _incidents, _logs, _docker, _http, _hostMetrics, new AdapterTemplateCatalog(),
+        _dataProtection, _diagnosis, new ResourceThresholdDetector(_rules, new RuleEngine()),
+        new LogScanDetector(_rules, new RuleEngine()),
+        _notifications, _autoRecovery, _time,
         NullLogger<TargetCollectionService>.Instance);
 
     private void AddDockerTarget(long id = 1)
@@ -71,7 +79,7 @@ public class TargetCollectionServiceTests
 
         await CreateSut().CollectAsync(1);
 
-        var snapshot = Assert.Single(_snapshots.Snapshots);
+        var snapshot = Assert.Single(_snapshots.Snapshots, s => s.Kind == "docker");
         Assert.Equal(CollectionStatus.Ok, snapshot.Status);
         Assert.Contains("running", snapshot.PayloadJson);
         Assert.Empty(_incidents.Incidents);
@@ -156,7 +164,10 @@ public class TargetCollectionServiceTests
         AddHttpTarget();
         var throwingHttp = new ThrowingHttpAdapter();
         var sut = new TargetCollectionService(
-            _targets, _snapshots, _incidents, _logs, _docker, throwingHttp, _dataProtection, _diagnosis, _notifications, _autoRecovery, _time,
+            _targets, _snapshots, _incidents, _logs, _docker, throwingHttp, _hostMetrics, new AdapterTemplateCatalog(),
+            _dataProtection, _diagnosis, new ResourceThresholdDetector(_rules, new RuleEngine()),
+            new LogScanDetector(_rules, new RuleEngine()),
+            _notifications, _autoRecovery, _time,
             NullLogger<TargetCollectionService>.Instance);
 
         await sut.CollectAsync(1);
@@ -316,8 +327,11 @@ public class TargetCollectionServiceTests
         // 対象へ到達できていない状態で復旧操作を試みない
         AddHttpTarget();
         var sut = new TargetCollectionService(
-            _targets, _snapshots, _incidents, _logs, _docker, new ThrowingHttpAdapter(),
-            _dataProtection, _diagnosis, _notifications, _autoRecovery, _time,
+            _targets, _snapshots, _incidents, _logs, _docker, new ThrowingHttpAdapter(), _hostMetrics,
+            new AdapterTemplateCatalog(), _dataProtection, _diagnosis,
+            new ResourceThresholdDetector(_rules, new RuleEngine()),
+            new LogScanDetector(_rules, new RuleEngine()), _notifications, _autoRecovery,
+            _time,
             NullLogger<TargetCollectionService>.Instance);
 
         await sut.CollectAsync(1);
@@ -342,5 +356,580 @@ public class TargetCollectionServiceTests
         public Task<AdapterConnectionResult> TestConnectionAsync(
             HttpCheckOptions options, CancellationToken ct = default) =>
             throw new HttpRequestException("boom");
+    }
+
+    // --- 対象ごとの監視項目(B-06) ---
+
+    private void SetEnabledMonitors(long id, string? json) =>
+        _targets.Targets.Single(t => t.Id == id).EnabledMonitorsJson = json;
+
+    [Fact]
+    public async Task 未設定ならテンプレートの既定どおり収集する()
+    {
+        AddDockerTarget();
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "exited", "Exited (137)", 3)];
+        _docker.ContainerLogs["c1"] = "fatal error";
+
+        await CreateSut().CollectAsync(1);
+
+        // 状態・ログ・使用率のすべてを行う
+        Assert.Single(_snapshots.Snapshots, s => s.Kind == "docker");
+        Assert.Single(_snapshots.Snapshots, s => s.Kind == "resource");
+        Assert.Single(_docker.LogRequests);
+    }
+
+    [Fact]
+    public async Task ログ抜粋を外すとログを取りに行かない()
+    {
+        // 外しても呼び続けるなら、設定が効いていないのと同じ
+        AddDockerTarget();
+        SetEnabledMonitors(1, $"[\"{MonitorKinds.ContainerState}\"]");
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "exited", "Exited (137)", 3)];
+        _docker.ContainerLogs["c1"] = "fatal error";
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Empty(_docker.LogRequests);
+    }
+
+    [Fact]
+    public async Task ログ抜粋を外してもインシデントは作る()
+    {
+        // 止めたのはログの取得だけ。停止の検知まで止めては監視にならない。
+        AddDockerTarget();
+        SetEnabledMonitors(1, $"[\"{MonitorKinds.ContainerState}\"]");
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "exited", "Exited (137)", 3)];
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Single(_incidents.Incidents);
+    }
+
+    [Fact]
+    public async Task コンテナ状態を外すと収集そのものを行わない()
+    {
+        AddDockerTarget();
+        SetEnabledMonitors(1, $"[\"{MonitorKinds.LogExcerpt}\"]");
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "exited", "Exited (137)", 3)];
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Empty(_snapshots.Snapshots);
+        Assert.Empty(_incidents.Incidents);
+    }
+
+    [Fact]
+    public async Task 壊れた設定でも収集は止めない()
+    {
+        // 設定が壊れただけで監視が黙って止まるのは避ける
+        AddDockerTarget();
+        SetEnabledMonitors(1, "これはJSONではない");
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "running", "Up", 0)];
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Single(_snapshots.Snapshots, s => s.Kind == "docker");
+    }
+
+    // --- リソース使用率(B-10) ---
+
+    private void AddMemoryPressureRule(double threshold = 90)
+    {
+        _rules.Rules.Add(new DiagnosticRule
+        {
+            Id = 1,
+            Name = "メモリ逼迫(使用率)",
+            Classification = "MemoryPressure",
+            RuleType = DiagnosticRuleType.Threshold,
+            ConditionJson =
+                $$"""{"field":"memoryUsagePercent","operator":">=","value":{{threshold}}}""",
+            Severity = IncidentSeverity.Medium,
+            Priority = 20,
+            RationaleTemplate = "メモリ使用率が {value}% に達しています。",
+        });
+    }
+
+    [Fact]
+    public async Task 稼働中コンテナの使用率を収集して残す()
+    {
+        AddDockerTarget();
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "running", "Up", 0)];
+        _docker.Stats["c1"] = new ContainerStats(12.5, 40.0, 400, 1000);
+
+        await CreateSut().CollectAsync(1);
+
+        var snapshot = Assert.Single(_snapshots.Snapshots, s => s.Kind == "resource");
+        Assert.Equal(CollectionStatus.Ok, snapshot.Status);
+        Assert.Contains("12.5", snapshot.PayloadJson);
+        Assert.Contains("40", snapshot.PayloadJson);
+    }
+
+    [Fact]
+    public async Task 停止中のコンテナは測らない()
+    {
+        // 停止中に使用率は無い。問い合わせても意味の無い値しか返らない
+        AddDockerTarget();
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "exited", "Exited (137)", 1)];
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Empty(_docker.StatsRequests);
+    }
+
+    [Fact]
+    public async Task リソース使用率を外すと取りに行かない()
+    {
+        // 外しても呼び続けるなら、設定が効いていないのと同じ
+        AddDockerTarget();
+        SetEnabledMonitors(1, $"[\"{MonitorKinds.ContainerState}\"]");
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "running", "Up", 0)];
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Empty(_docker.StatsRequests);
+        Assert.DoesNotContain(_snapshots.Snapshots, s => s.Kind == "resource");
+    }
+
+    [Fact]
+    public async Task 状態もリソースも外せばコンテナ一覧すら取りに行かない()
+    {
+        AddDockerTarget();
+        SetEnabledMonitors(1, $"[\"{MonitorKinds.LogExcerpt}\"]");
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "running", "Up", 0)];
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Empty(_docker.CalledEndpoints);
+    }
+
+    [Fact]
+    public async Task 状態を外してもリソース使用率だけは収集できる()
+    {
+        // 使用率はコンテナごとの値なので、一覧の取得自体は避けられない。
+        // ただし状態のスナップショットとインシデント化は行わない。
+        AddDockerTarget();
+        SetEnabledMonitors(1, $"[\"{MonitorKinds.ResourceUsage}\"]");
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "exited", "Exited (137)", 1)];
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.DoesNotContain(_snapshots.Snapshots, s => s.Kind == "docker");
+        Assert.Single(_snapshots.Snapshots, s => s.Kind == "resource");
+        Assert.Empty(_incidents.Incidents);
+    }
+
+    [Fact]
+    public async Task しきい値を超えたらインシデントにする()
+    {
+        // これまでしきい値ルールは説明にしか使われず、自分では何も起こせなかった
+        AddDockerTarget();
+        AddMemoryPressureRule();
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "running", "Up", 0)];
+        _docker.Stats["c1"] = new ContainerStats(5.0, 95.0, 950, 1000);
+
+        await CreateSut().CollectAsync(1);
+
+        var incident = Assert.Single(_incidents.Incidents);
+        Assert.Equal("MemoryPressure", incident.Classification);
+        Assert.Equal("web", incident.Service);
+        Assert.Equal(IncidentSeverity.Medium, incident.Severity);
+    }
+
+    [Fact]
+    public async Task しきい値の範囲内ならインシデントにしない()
+    {
+        AddDockerTarget();
+        AddMemoryPressureRule();
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "running", "Up", 0)];
+        _docker.Stats["c1"] = new ContainerStats(5.0, 40.0, 400, 1000);
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Empty(_incidents.Incidents);
+    }
+
+    [Fact]
+    public async Task 使用率が取れなければインシデントにしない()
+    {
+        // 取れないことを正常とも異常とも決めつけない
+        AddDockerTarget();
+        AddMemoryPressureRule();
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "running", "Up", 0)];
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Empty(_incidents.Incidents);
+    }
+
+    [Fact]
+    public async Task 使用率が1件も取れなければ収集失敗として残す()
+    {
+        // 空の結果を正常な収集として記録すると、取れていないことが見えなくなる
+        AddDockerTarget();
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "running", "Up", 0)];
+
+        await CreateSut().CollectAsync(1);
+
+        var snapshot = Assert.Single(_snapshots.Snapshots, s => s.Kind == "resource");
+        Assert.Equal(CollectionStatus.Failed, snapshot.Status);
+        Assert.NotNull(snapshot.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task 稼働中コンテナが無ければ失敗にしない()
+    {
+        AddDockerTarget();
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "exited", "Exited (0)", 0)];
+
+        await CreateSut().CollectAsync(1);
+
+        var snapshot = Assert.Single(_snapshots.Snapshots, s => s.Kind == "resource");
+        Assert.Equal(CollectionStatus.Ok, snapshot.Status);
+    }
+
+    [Fact]
+    public async Task 測るコンテナ数に上限を設ける()
+    {
+        // 1件あたり約1秒かかるため、際限なく増やすと収集間隔を超える
+        AddDockerTarget();
+        _docker.Containers = Enumerable.Range(1, TargetCollectionService.MaxStatsContainers + 5)
+            .Select(i => new ContainerInfo($"c{i:00}", $"svc{i:00}", "nginx:1.27", "running", "Up", 0))
+            .ToList();
+        foreach (var container in _docker.Containers)
+        {
+            _docker.Stats[container.Id] = new ContainerStats(1.0, 1.0, 10, 1000);
+        }
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Equal(TargetCollectionService.MaxStatsContainers, _docker.StatsRequests.Count);
+
+        // 測らなかった件数を残す。黙って省くと「全部見ている」と誤解される
+        var snapshot = Assert.Single(_snapshots.Snapshots, s => s.Kind == "resource");
+        Assert.Contains("\"skipped\":5", snapshot.PayloadJson);
+    }
+
+    [Fact]
+    public async Task 同じコンテナの逼迫は1件のインシデントにまとめる()
+    {
+        AddDockerTarget();
+        AddMemoryPressureRule();
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "running", "Up", 0)];
+        _docker.Stats["c1"] = new ContainerStats(5.0, 95.0, 950, 1000);
+        var sut = CreateSut();
+
+        await sut.CollectAsync(1);
+        _time.Now = BaseTime.AddMinutes(5);
+        await sut.CollectAsync(1);
+
+        var incident = Assert.Single(_incidents.Incidents);
+        Assert.Equal(2, incident.OccurrenceCount);
+    }
+
+    [Fact]
+    public async Task 使用率の逼迫では自動復旧を試みない()
+    {
+        // 使用率が高いだけでは「何を再起動すれば直るか」が定まらない
+        AddDockerTarget();
+        AddMemoryPressureRule();
+        _docker.Containers = [new ContainerInfo("c1", "web", "nginx:1.27", "running", "Up", 0)];
+        _docker.Stats["c1"] = new ContainerStats(5.0, 95.0, 950, 1000);
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Empty(_autoRecovery.Calls);
+    }
+
+    // --- ホストのディスク使用率(B-11) ---
+
+    private void SetMetricsEndpoint(long id, string url)
+    {
+        var target = _targets.Targets.Single(t => t.Id == id);
+        var settings = JsonSerializer.Deserialize<Dictionary<string, string>>(
+            target.Profile!.SettingsJson)!;
+        settings["metricsEndpoint"] = url;
+        target.Profile.SettingsJson = JsonSerializer.Serialize(settings);
+    }
+
+    private void AddDiskPressureRule(double threshold = 85)
+    {
+        _rules.Rules.Add(new DiagnosticRule
+        {
+            Id = _rules.Rules.Count + 1,
+            Name = "ディスク逼迫(使用率)",
+            Classification = "DiskPressure",
+            RuleType = DiagnosticRuleType.Threshold,
+            ConditionJson =
+                $$"""{"field":"diskUsagePercent","operator":">=","value":{{threshold}}}""",
+            Severity = IncidentSeverity.Medium,
+            Priority = 20,
+            RationaleTemplate = "ディスク使用率が {value}% に達しています。",
+        });
+    }
+
+    [Fact]
+    public async Task ホストのディスク使用率を収集して残す()
+    {
+        AddDockerTarget();
+        SetMetricsEndpoint(1, "http://192.168.1.20:9100/metrics");
+        _hostMetrics.Filesystems = [new FilesystemUsage("/", 1000, 100, 88.89)];
+
+        await CreateSut().CollectAsync(1);
+
+        var snapshot = Assert.Single(_snapshots.Snapshots, s => s.Kind == "disk");
+        Assert.Equal(CollectionStatus.Ok, snapshot.Status);
+        Assert.Contains("88.89", snapshot.PayloadJson);
+        Assert.Contains("/", snapshot.PayloadJson);
+    }
+
+    [Fact]
+    public async Task 接続先が未設定なら取りに行かない()
+    {
+        // 設定していない対象で毎回失敗を積み上げない
+        AddDockerTarget();
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Empty(_hostMetrics.CalledUrls);
+        Assert.DoesNotContain(_snapshots.Snapshots, s => s.Kind == "disk");
+    }
+
+    [Fact]
+    public async Task ディスク使用率を外すと取りに行かない()
+    {
+        AddDockerTarget();
+        SetMetricsEndpoint(1, "http://192.168.1.20:9100/metrics");
+        SetEnabledMonitors(1, $"[\"{MonitorKinds.ContainerState}\"]");
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Empty(_hostMetrics.CalledUrls);
+    }
+
+    [Fact]
+    public async Task ディスクのしきい値を超えたらインシデントにする()
+    {
+        AddDockerTarget();
+        SetMetricsEndpoint(1, "http://192.168.1.20:9100/metrics");
+        AddDiskPressureRule();
+        _hostMetrics.Filesystems = [new FilesystemUsage("/", 1000, 50, 92.0)];
+
+        await CreateSut().CollectAsync(1);
+
+        var incident = Assert.Single(_incidents.Incidents);
+        Assert.Equal("DiskPressure", incident.Classification);
+
+        // どのファイルシステムが逼迫しているかが分からないと手当てのしようがない
+        Assert.Equal("/", incident.Service);
+    }
+
+    [Fact]
+    public async Task ファイルシステムごとに別のインシデントにする()
+    {
+        // / と /mnt/data では消すべきものが違う。1件にまとめると手当てを誤る
+        AddDockerTarget();
+        SetMetricsEndpoint(1, "http://192.168.1.20:9100/metrics");
+        AddDiskPressureRule();
+        _hostMetrics.Filesystems =
+        [
+            new FilesystemUsage("/", 1000, 50, 92.0),
+            new FilesystemUsage("/mnt/data", 1000, 20, 96.0),
+            new FilesystemUsage("/boot", 1000, 800, 20.0),
+        ];
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Equal(2, _incidents.Incidents.Count);
+        Assert.Equal(["/", "/mnt/data"], _incidents.Incidents.Select(i => i.Service));
+    }
+
+    [Fact]
+    public async Task ディスクの逼迫では自動復旧を試みない()
+    {
+        // コンテナを再起動しても容量は戻らない。消してよいものを決められるのは人だけ
+        AddDockerTarget();
+        SetMetricsEndpoint(1, "http://192.168.1.20:9100/metrics");
+        AddDiskPressureRule();
+        _hostMetrics.Filesystems = [new FilesystemUsage("/", 1000, 50, 92.0)];
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Empty(_autoRecovery.Calls);
+    }
+
+    [Fact]
+    public async Task ディスク使用率が読めなければ収集失敗として残す()
+    {
+        // 空の結果を正常な収集として記録すると、取れていないことが見えなくなる
+        AddDockerTarget();
+        SetMetricsEndpoint(1, "http://192.168.1.20:9100/metrics");
+        AddDiskPressureRule();
+
+        await CreateSut().CollectAsync(1);
+
+        var snapshot = Assert.Single(_snapshots.Snapshots, s => s.Kind == "disk");
+        Assert.Equal(CollectionStatus.Failed, snapshot.Status);
+        Assert.NotNull(snapshot.ErrorMessage);
+
+        // 読めなかったことを「しきい値を下回っている」と読み替えない
+        Assert.Empty(_incidents.Incidents);
+    }
+
+    [Fact]
+    public async Task Composeアプリの対象ではディスク使用率を扱わない()
+    {
+        // ホストのディスクはComposeプロジェクト単位の値ではない。
+        // 同じホストの対象ごとに同じ数値のインシデントが並ぶのを避ける
+        var template = new AdapterTemplateCatalog().Find("docker-compose-app")!;
+
+        Assert.DoesNotContain(MonitorKinds.DiskUsage, template.CollectableMonitors);
+    }
+
+    // --- 稼働中コンテナのログ検知 ---
+    //
+    // 実環境試験のSC-04が検知できなかったことで見つかった。
+    // ログ抜粋は停止コンテナからしか取っておらず、
+    // 「動き続けたままエラーを出しているコンテナ」は一度も読まれていなかった。
+
+    private void AddDiskPressureLogRule()
+    {
+        _rules.Rules.Add(new DiagnosticRule
+        {
+            Id = _rules.Rules.Count + 1,
+            Name = "ディスク逼迫(ログ検知)",
+            Classification = "DiskPressure",
+            RuleType = DiagnosticRuleType.Regex,
+            ConditionJson =
+                """{"field":"logExcerpt","pattern":"(?i)no space left on device|disk full"}""",
+            Severity = IncidentSeverity.High,
+            Priority = 5,
+            RationaleTemplate = "ログにディスク不足の兆候({value})が含まれています。",
+        });
+    }
+
+    [Fact]
+    public async Task 稼働中コンテナのログにディスク不足が出たらインシデントにする()
+    {
+        // SC-04。tmpfsが満杯になってもコンテナは動き続けるため、
+        // 停止コンテナしか見ない収集では永久に検知できなかった
+        AddDockerTarget();
+        AddDiskPressureLogRule();
+        _docker.Containers = [new ContainerInfo("c1", "lab-disk", "alpine:3.20", "running", "Up 5 minutes", 0)];
+        _docker.ContainerLogs["c1"] = "dd: error writing '/scratch/fill': No space left on device";
+
+        await CreateSut().CollectAsync(1);
+
+        var incident = Assert.Single(_incidents.Incidents);
+        Assert.Equal("DiskPressure", incident.Classification);
+
+        // どのコンテナが逼迫しているかが分からないと手当てのしようがない
+        Assert.Equal("lab-disk", incident.Service);
+    }
+
+    [Fact]
+    public async Task 稼働中コンテナのログ検知では自動復旧を試みない()
+    {
+        // ログの中身は監視対象の側が自由に書ける。
+        // 収集した文字列が自動実行の引き金になると、
+        // ログへ書き込める者が稼働中のコンテナを再起動させられることになる(ST-AI)
+        AddDockerTarget();
+        _rules.Rules.Add(new DiagnosticRule
+        {
+            Id = 1,
+            Name = "メモリ逼迫(ログ検知)",
+            Classification = "MemoryPressure",
+            RuleType = DiagnosticRuleType.Regex,
+            ConditionJson = """{"field":"logExcerpt","pattern":"(?i)out of memory"}""",
+            Severity = IncidentSeverity.High,
+            // 停止コンテナでは再起動を推奨するルールだが、稼働中では実行させない
+            RecommendedActionId = "RESTART_ALLOWED_CONTAINER",
+            Priority = 5,
+            RationaleTemplate = "ログにメモリ不足の兆候({value})が含まれています。",
+        });
+        _docker.Containers = [new ContainerInfo("c1", "app", "alpine:3.20", "running", "Up 5 minutes", 0)];
+        _docker.ContainerLogs["c1"] = "FATAL: Out of memory: Killed process 1";
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Single(_incidents.Incidents);
+        Assert.Empty(_autoRecovery.Calls);
+    }
+
+    [Fact]
+    public async Task 同じ障害が続いてもインシデントは増えない()
+    {
+        // ログ末尾をそのまま署名にすると、行が流れるたびに別の署名になり、
+        // **収集のたびに新しいインシデントが積み上がる**
+        AddDockerTarget();
+        AddDiskPressureLogRule();
+        _docker.Containers = [new ContainerInfo("c1", "lab-disk", "alpine:3.20", "running", "Up 5 minutes", 0)];
+
+        _docker.ContainerLogs["c1"] = "12:00:01 request 1841 ok\ndd: No space left on device";
+        await CreateSut().CollectAsync(1);
+
+        // 同じ障害が続いているが、前後の行は流れて変わっている
+        _docker.ContainerLogs["c1"] = "12:00:31 request 2903 ok\ndd: No space left on device";
+        await CreateSut().CollectAsync(1);
+
+        var incident = Assert.Single(_incidents.Incidents);
+        Assert.Equal(2, incident.OccurrenceCount);
+
+        // 継続中の同じ障害でログを積み増すと、同じ内容で際限なく増える
+        Assert.Single(_logs.Logs);
+    }
+
+    [Fact]
+    public async Task ログ抜粋を外すと稼働中コンテナのログを取りに行かない()
+    {
+        AddDockerTarget();
+        AddDiskPressureLogRule();
+        SetEnabledMonitors(1, $"[\"{MonitorKinds.ContainerState}\"]");
+        _docker.Containers = [new ContainerInfo("c1", "lab-disk", "alpine:3.20", "running", "Up 5 minutes", 0)];
+        _docker.ContainerLogs["c1"] = "dd: No space left on device";
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Empty(_docker.LogRequests);
+        Assert.Empty(_incidents.Incidents);
+    }
+
+    [Fact]
+    public async Task 稼働中コンテナのログに秘密情報が出ても伏せて保存する()
+    {
+        AddDockerTarget();
+        AddDiskPressureLogRule();
+        _docker.Containers = [new ContainerInfo("c1", "lab-disk", "alpine:3.20", "running", "Up 5 minutes", 0)];
+        _docker.ContainerLogs["c1"] =
+            "password=hunter2trustno1 のあと disk full になりました";
+
+        await CreateSut().CollectAsync(1);
+
+        var log = Assert.Single(_logs.Logs);
+        Assert.DoesNotContain("hunter2trustno1", log.MaskedContent);
+    }
+
+    [Fact]
+    public async Task 稼働中コンテナのログ検知は状態ルールに当たらない()
+    {
+        // 判定へ渡す文脈にログ以外を入れると、コンテナ停止のルールが
+        // 稼働中のコンテナに対して評価されてしまう
+        AddDockerTarget();
+        _rules.Rules.Add(new DiagnosticRule
+        {
+            Id = 1,
+            Name = "コンテナ停止",
+            Classification = "ContainerStopped",
+            RuleType = DiagnosticRuleType.State,
+            ConditionJson = """{"field":"containerState","equalsAny":["exited","dead"]}""",
+            Severity = IncidentSeverity.High,
+            Priority = 10,
+            RationaleTemplate = "コンテナ状態が {value} です。",
+        });
+        _docker.Containers = [new ContainerInfo("c1", "app", "alpine:3.20", "running", "Up 5 minutes", 0)];
+        _docker.ContainerLogs["c1"] = "running fine";
+
+        await CreateSut().CollectAsync(1);
+
+        Assert.Empty(_incidents.Incidents);
     }
 }

@@ -24,6 +24,31 @@ public class FakeMonitoringTargetRepository : IMonitoringTargetRepository
         return Task.CompletedTask;
     }
 
+    /// <summary>削除で消えるものの件数。既定では0(必要なテストが値を入れる)。</summary>
+    public TargetDependents Dependents { get; set; } = new()
+    {
+        MetricSnapshots = 0,
+        Incidents = 0,
+        IncidentLogs = 0,
+        Diagnoses = 0,
+        RecoveryActions = 0,
+        HealthChecks = 0,
+        Notifications = 0,
+        MaintenanceWindows = 0,
+    };
+
+    public List<MonitoringTarget> Deleted { get; } = [];
+
+    public Task<TargetDependents> CountDependentsAsync(long targetId, CancellationToken ct = default) =>
+        Task.FromResult(Dependents);
+
+    public Task DeleteWithDependentsAsync(MonitoringTarget target, CancellationToken ct = default)
+    {
+        Targets.Remove(target);
+        Deleted.Add(target);
+        return Task.CompletedTask;
+    }
+
     public Task SaveChangesAsync(CancellationToken ct = default) => Task.CompletedTask;
 }
 
@@ -51,9 +76,28 @@ public class FakeDockerAdapter : IDockerAdapter
         return Task.FromResult<IReadOnlyList<ContainerInfo>>(Containers);
     }
 
+    /// <summary>コンテナIDごとに返す使用率。指定が無ければ未取得(null)として返す。</summary>
+    public Dictionary<string, ContainerStats> Stats { get; } = [];
+
+    /// <summary>使用率を取りに行った回数。外したときに呼ばれないことを確かめるのに使う。</summary>
+    public List<string> StatsRequests { get; } = [];
+
+    public Task<ContainerStats?> GetContainerStatsAsync(
+        string endpoint, string containerId, CancellationToken ct = default)
+    {
+        StatsRequests.Add(containerId);
+        return Task.FromResult(Stats.GetValueOrDefault(containerId));
+    }
+
+    /// <summary>ログを取りに行った回数。外したときに呼ばれないことを確かめるのに使う。</summary>
+    public List<string> LogRequests { get; } = [];
+
     public Task<string> GetContainerLogsAsync(
-        string endpoint, string containerId, int tailLines = 50, CancellationToken ct = default) =>
-        Task.FromResult(ContainerLogs.GetValueOrDefault(containerId, string.Empty));
+        string endpoint, string containerId, int tailLines = 50, CancellationToken ct = default)
+    {
+        LogRequests.Add(containerId);
+        return Task.FromResult(ContainerLogs.GetValueOrDefault(containerId, string.Empty));
+    }
 
     public List<(string Endpoint, string Container, ContainerOperation Operation)> ControlCalls { get; } = [];
 
@@ -64,6 +108,21 @@ public class FakeDockerAdapter : IDockerAdapter
     {
         ControlCalls.Add((endpoint, containerNameOrId, operation));
         return Task.FromResult(ControlResult);
+    }
+}
+
+public class FakeHostMetricsAdapter : IHostMetricsAdapter
+{
+    public List<FilesystemUsage> Filesystems { get; set; } = [];
+
+    /// <summary>問い合わせたURL。設定していない対象で呼ばないことを確かめるのに使う。</summary>
+    public List<string> CalledUrls { get; } = [];
+
+    public Task<IReadOnlyList<FilesystemUsage>> GetFilesystemUsageAsync(
+        string metricsUrl, CancellationToken ct = default)
+    {
+        CalledUrls.Add(metricsUrl);
+        return Task.FromResult<IReadOnlyList<FilesystemUsage>>(Filesystems);
     }
 }
 

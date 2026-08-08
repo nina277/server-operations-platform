@@ -33,7 +33,12 @@ public record RetentionSettingsDto
     [Range(1, 3650)]
     public int IncidentsDays { get; init; } = 365;
 
-    [Range(1, 3650)]
+    /// <summary>
+    /// 監査ログの保持日数。下限があるのは、痕跡を消すために
+    /// 保持期間を縮める操作を成立させないため。
+    /// </summary>
+    [Range(ServerOperations.Core.Services.RetentionPolicy.MinAuditDays, 3650,
+        ErrorMessage = "監査ログの保持は90日以上にしてください。改ざんの証跡が短期間で消えるためです。")]
     public int AuditDays { get; init; } = 365;
 }
 
@@ -73,4 +78,157 @@ public record UpdateSecretRequest
     [Required]
     [MaxLength(8000)]
     public required string Value { get; init; }
+}
+
+/// <summary>
+/// 通知設定。
+/// 秘密値(SMTPパスワード・FCMサービスアカウント)はここに含めず、秘密情報として別に管理する。
+/// </summary>
+public record NotificationSettingsDto
+{
+    /// <summary>この深刻度以上を通知する。Critical / High / Medium / Low。</summary>
+    [Required]
+    [RegularExpression("^(Critical|High|Medium|Low)$",
+        ErrorMessage = "minimumSeverityは Critical / High / Medium / Low のいずれかを指定してください。")]
+    public required string MinimumSeverity { get; init; }
+
+    /// <summary>同じ事象の再通知間隔(分)。この間隔内は既存の通知へまとめる。</summary>
+    [Range(1, 10080)]
+    public int RenotifyIntervalMinutes { get; init; } = 60;
+
+    public bool EmailEnabled { get; init; }
+
+    /// <summary>メールの送信先。</summary>
+    public List<string> EmailRecipients { get; init; } = [];
+
+    /// <summary>SMTPサーバーのホスト名またはIP。保存時に接続先として妥当かを検証する。</summary>
+    [MaxLength(255)]
+    public string? SmtpHost { get; init; }
+
+    [Range(1, 65535)]
+    public int SmtpPort { get; init; } = 587;
+
+    public bool SmtpUseStartTls { get; init; } = true;
+
+    [MaxLength(255)]
+    public string? SmtpUsername { get; init; }
+
+    [MaxLength(255)]
+    public string? SmtpFromAddress { get; init; }
+
+    public bool PushEnabled { get; init; }
+
+    /// <summary>Push送信の連続失敗がこの回数に達した端末を失効させる。</summary>
+    [Range(1, 100)]
+    public int PushFailureThreshold { get; init; } = 3;
+}
+
+/// <summary>
+/// バックアップ設定。
+/// アクセスキー・シークレットキーはここに含めず、秘密情報として別に管理する。
+/// </summary>
+public record BackupSettingsDto
+{
+    public bool Enabled { get; init; }
+
+    /// <summary>S3互換の保存先(MinIO等)。http/httpsのURL。保存時に接続先として妥当かを検証する。</summary>
+    [MaxLength(500)]
+    public string? Endpoint { get; init; }
+
+    [MaxLength(100)]
+    public string? BucketName { get; init; }
+
+    /// <summary>オブジェクトキーの接頭辞。</summary>
+    [MaxLength(100)]
+    public string Prefix { get; init; } = "server-operations/";
+
+    [MaxLength(64)]
+    public string Region { get; init; } = "us-east-1";
+
+    /// <summary>MinIO等ではパス形式のアクセスが必要。</summary>
+    public bool UsePathStyle { get; init; } = true;
+
+    /// <summary>保持する世代数。超えた分は削除する。</summary>
+    [Range(1, 365)]
+    public int KeepGenerations { get; init; } = 7;
+}
+
+/// <summary>保存先にあるバックアップの1世代。</summary>
+public record BackupGenerationDto
+{
+    public required string ObjectKey { get; init; }
+
+    public required DateTime LastModified { get; init; }
+
+    public required long SizeBytes { get; init; }
+
+    public static BackupGenerationDto From(Core.Services.Backup.BackupGeneration source) => new()
+    {
+        ObjectKey = source.ObjectKey,
+        LastModified = source.LastModified,
+        SizeBytes = source.SizeBytes,
+    };
+}
+
+/// <summary>復元の要求。</summary>
+public record BackupRestoreRequest
+{
+    [Required]
+    [MaxLength(500)]
+    public required string ObjectKey { get; init; }
+
+    /// <summary>
+    /// 取り違え防止の確認。復元では ObjectKey と同じ値を求める。
+    /// 下見では使わない。
+    /// </summary>
+    [MaxLength(500)]
+    public string? Confirm { get; init; }
+}
+
+public record RestorePlanItemDto
+{
+    public required string Category { get; init; }
+
+    public required int Added { get; init; }
+
+    public required int Updated { get; init; }
+
+    public required int Unchanged { get; init; }
+
+    /// <summary>現存するがバックアップに無い件数。**復元では消さない。**</summary>
+    public required int NotInBackup { get; init; }
+}
+
+/// <summary>復元の下見または結果。Applied が false なら何も変更していない。</summary>
+public record BackupRestorePlanDto
+{
+    public required string ObjectKey { get; init; }
+
+    public required DateTime SnapshotCreatedAt { get; init; }
+
+    public required int Version { get; init; }
+
+    public required bool Applied { get; init; }
+
+    public required List<RestorePlanItemDto> Items { get; init; }
+
+    /// <summary>復元しないもの・含まれないものの説明。画面にそのまま出す。</summary>
+    public required List<string> Notes { get; init; }
+
+    public static BackupRestorePlanDto From(Core.Services.Backup.BackupRestorePlan source) => new()
+    {
+        ObjectKey = source.ObjectKey,
+        SnapshotCreatedAt = source.SnapshotCreatedAt,
+        Version = source.Version,
+        Applied = source.Applied,
+        Items = source.Items.Select(i => new RestorePlanItemDto
+        {
+            Category = i.Category,
+            Added = i.Added,
+            Updated = i.Updated,
+            Unchanged = i.Unchanged,
+            NotInBackup = i.NotInBackup,
+        }).ToList(),
+        Notes = source.Notes,
+    };
 }

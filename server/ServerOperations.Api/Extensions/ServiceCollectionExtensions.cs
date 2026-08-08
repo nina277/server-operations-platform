@@ -53,6 +53,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IMfaService, MfaService>();
         services.AddScoped<IAuditService, AuditService>();
         services.AddScoped<IAuditLogQueryService, AuditLogQueryService>();
+        services.AddScoped<IUserManagementService, UserManagementService>();
+        // 試行の記録はプロセス内に持つため、単一のインスタンスを共有する
+        services.AddSingleton<Core.Services.ILoginThrottle, Core.Services.LoginThrottle>();
         services.AddScoped<IDiagnosticRuleService, DiagnosticRuleService>();
         services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
         services.AddScoped<ISettingsService, SettingsService>();
@@ -67,13 +70,23 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IIncidentRepository, IncidentRepository>();
         services.AddScoped<IIncidentLogRepository, IncidentLogRepository>();
         services.AddScoped<IIncidentService, IncidentService>();
+        services.AddScoped<IIncidentNoteRepository, IncidentNoteRepository>();
+        services.AddScoped<IIncidentNoteService, IncidentNoteService>();
+        services.AddScoped<IOperationsInsightsRepository, OperationsInsightsRepository>();
+        services.AddScoped<IOperationsInsightsService, OperationsInsightsService>();
+        services.AddScoped<IMaintenanceWindowRepository, MaintenanceWindowRepository>();
+        services.AddScoped<IMaintenanceWindowService, MaintenanceWindowService>();
+        services.AddScoped<Core.Services.IMaintenanceService, Core.Services.MaintenanceService>();
         services.AddScoped<IDashboardService, DashboardService>();
+        services.AddScoped<Core.Services.IMonitoringHealthService, Core.Services.MonitoringHealthService>();
         services.AddScoped<ITelemetryService, TelemetryService>();
 
         services.AddScoped<IDiagnosticRuleRepository, DiagnosticRuleRepository>();
         services.AddScoped<IDiagnosisRepository, DiagnosisRepository>();
         services.AddSingleton<Core.Services.IRuleEngine, Core.Services.RuleEngine>();
         services.AddScoped<Core.Services.IDiagnosisService, Core.Services.DiagnosisService>();
+        services.AddScoped<Core.Services.IResourceThresholdDetector, Core.Services.ResourceThresholdDetector>();
+        services.AddScoped<Core.Services.ILogScanDetector, Core.Services.LogScanDetector>();
 
         // 復旧(T-06)。APIは受付・検証のみを行い、実行はWorkerが担う。
         var recoveryLimits = configuration.GetSection(Core.Services.RecoveryLimits.SectionName)
@@ -98,6 +111,8 @@ public static class ServiceCollectionExtensions
             Core.Services.Notifications.EmailNotificationSender>();
         services.AddScoped<Core.Services.Notifications.INotificationChannelSender,
             Core.Services.Notifications.PushNotificationSender>();
+        services.AddScoped<Core.Services.Notifications.INotificationTestService,
+            Core.Services.Notifications.NotificationTestService>();
         services.AddScoped<Core.Services.Notifications.INotificationService,
             Core.Services.Notifications.NotificationService>();
         services.AddScoped<Core.Services.IRetentionService, Core.Services.RetentionService>();
@@ -118,6 +133,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<Core.Services.Backup.IBackupSourceProvider,
             Core.Services.Backup.DatabaseBackupSourceProvider>();
         services.AddScoped<Core.Services.Backup.IBackupService, Core.Services.Backup.BackupService>();
+        services.AddScoped<Core.Services.Backup.IBackupObjectStore, Core.Services.Backup.S3BackupObjectStore>();
+        services.AddScoped<Core.Services.Backup.IBackupRestoreService, Core.Services.Backup.BackupRestoreService>();
 
         // Hangfireクライアント(ジョブサーバーは起動しない)。未設定時は実行を委譲せず警告に留める。
         if (configuration.GetValue("Hangfire:Enabled", defaultValue: true))
@@ -149,8 +166,14 @@ public static class ServiceCollectionExtensions
                 client.Timeout = TimeSpan.FromSeconds(65);
             })
             .ConfigurePrimaryHttpMessageHandler(CreateGuardedHandler);
+        services.AddHttpClient(HostMetricsAdapter.HttpClientName, client =>
+            {
+                client.Timeout = TimeSpan.FromSeconds(15);
+            })
+            .ConfigurePrimaryHttpMessageHandler(CreateGuardedHandler);
         services.AddScoped<IDockerAdapter, DockerAdapter>();
         services.AddScoped<IHttpAdapter, HttpAdapter>();
+        services.AddScoped<IHostMetricsAdapter, HostMetricsAdapter>();
 
         return services;
     }

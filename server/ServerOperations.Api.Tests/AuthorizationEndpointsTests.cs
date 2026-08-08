@@ -27,7 +27,14 @@ public class AuthorizationEndpointsTests(AuthorizedApiFactory factory)
         data.Add("GET", "/api/v1/settings/network-cidrs");
         data.Add("GET", "/api/v1/settings/secrets/smtp-password/status");
         data.Add("GET", "/api/v1/settings/backup/runs");
+        data.Add("GET", "/api/v1/settings/backup/generations");
+        data.Add("GET", "/api/v1/settings/notification");
+        data.Add("GET", "/api/v1/settings/backup-settings");
         data.Add("GET", "/api/v1/audit-logs");
+        data.Add("GET", "/api/v1/audit-logs/export");
+        data.Add("GET", "/api/v1/maintenance-windows");
+        data.Add("GET", "/api/v1/users");
+        data.Add("GET", "/api/v1/targets/1/delete-preview");
         data.Add("GET", "/api/v1/audit-logs/filter-options");
         return data;
     }
@@ -38,6 +45,7 @@ public class AuthorizationEndpointsTests(AuthorizedApiFactory factory)
         "/api/v1/adapter-templates",
         "/api/v1/recovery-action-catalog",
         "/api/v1/diagnostic-rules/editor-options",
+        "/api/v1/insights/operations",
     ];
 
     // --- 未認証 ---
@@ -220,6 +228,96 @@ public class AuthorizationEndpointsTests(AuthorizedApiFactory factory)
     }
 
     [Fact]
+    public async Task 閲覧者はメンテナンス期間を登録できない()
+    {
+        // 抑止の設定は自動復旧の挙動を変える操作にあたる
+        using var client = factory.CreateClientAs(UserRole.Viewer);
+
+        var response = await client.PostAsJsonAsync("/api/v1/maintenance-windows", new
+        {
+            reason = "勝手に登録した期間",
+            startsAt = DateTime.UtcNow,
+            endsAt = DateTime.UtcNow.AddHours(1),
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task 閲覧者は対応メモを書けない()
+    {
+        using var client = factory.CreateClientAs(UserRole.Viewer);
+
+        var response = await client.PostAsJsonAsync("/api/v1/incidents/1/notes", new
+        {
+            body = "勝手に書いたメモ",
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task 閲覧者はテスト通知を送れない()
+    {
+        // 送信を起こさせない(繰り返し叩かれると外部へ大量に送ることになる)
+        using var client = factory.CreateClientAs(UserRole.Viewer);
+
+        var response = await client.PostAsync("/api/v1/settings/notification/test", content: null);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task 閲覧者は利用者を追加できない()
+    {
+        // 役割の割り当ては権限そのものを動かす操作
+        using var client = factory.CreateClientAs(UserRole.Viewer);
+
+        var response = await client.PostAsJsonAsync("/api/v1/users", new
+        {
+            username = "sneaky",
+            password = "initial-password-1",
+            role = "OperatorAdmin",
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task 閲覧者は役割を変えられない()
+    {
+        using var client = factory.CreateClientAs(UserRole.Viewer);
+
+        var response = await client.PatchAsJsonAsync("/api/v1/users/1/role", new
+        {
+            role = "OperatorAdmin",
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task 閲覧者は他人のMFAをリセットできない()
+    {
+        // リセットはそれ自体が乗っ取りの経路になりうる
+        using var client = factory.CreateClientAs(UserRole.Viewer);
+
+        var response = await client.PostAsync("/api/v1/users/2/mfa/reset", content: null);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task 閲覧者は監視対象を削除できない()
+    {
+        using var client = factory.CreateClientAs(UserRole.Viewer);
+
+        var response = await client.DeleteAsync("/api/v1/targets/1");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
     public async Task 閲覧者は秘密情報を書き換えられない()
     {
         using var client = factory.CreateClientAs(UserRole.Viewer);
@@ -228,6 +326,34 @@ public class AuthorizationEndpointsTests(AuthorizedApiFactory factory)
         {
             value = "勝手に入れた値",
         });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task 閲覧者はバックアップから復元できない()
+    {
+        // **復元は既存データを書き換える。**役割で確実に弾かれることを見る
+        using var client = factory.CreateClientAs(UserRole.Viewer);
+        var body = new StringContent(
+            """{"objectKey":"server-operations/x.bin","confirm":"server-operations/x.bin"}""",
+            System.Text.Encoding.UTF8, "application/json");
+
+        var response = await client.PostAsync("/api/v1/settings/backup/restore", body);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task 閲覧者は復元の下見もできない()
+    {
+        // 下見は変更しないが、保存先の中身が見える。参照でも役割を要求する
+        using var client = factory.CreateClientAs(UserRole.Viewer);
+        var body = new StringContent(
+            """{"objectKey":"server-operations/x.bin"}""",
+            System.Text.Encoding.UTF8, "application/json");
+
+        var response = await client.PostAsync("/api/v1/settings/backup/restore-preview", body);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }

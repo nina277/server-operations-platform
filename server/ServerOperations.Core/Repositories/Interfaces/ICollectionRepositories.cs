@@ -9,6 +9,13 @@ public interface IMetricSnapshotRepository
     Task<List<MetricSnapshot>> GetRecentAsync(
         long targetId, int limit, CancellationToken ct = default);
 
+    /// <summary>
+    /// 対象ごとの最終収集時刻。自己監視で「収集が届いているか」を見るのに使う。
+    /// 収集の記録そのものを生存の証跡として使うため、別の心拍は持たない。
+    /// </summary>
+    Task<Dictionary<long, DateTime>> GetLatestCollectedAtByTargetAsync(
+        CancellationToken ct = default);
+
     Task SaveChangesAsync(CancellationToken ct = default);
 }
 
@@ -44,6 +51,13 @@ public interface IIncidentRepository
     Task<Dictionary<IncidentStatus, int>> CountByStatusAsync(CancellationToken ct = default);
 
     Task<Dictionary<IncidentSeverity, int>> CountActiveBySeverityAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// 対象ごとの未解決インシデント件数と、最も高い重大度。
+    /// ダッシュボードで「どの対象が今つらいのか」を出すのに使う。
+    /// </summary>
+    Task<Dictionary<long, (int Count, IncidentSeverity Highest)>> CountActiveByTargetAsync(
+        CancellationToken ct = default);
 
     Task AddAsync(Incident incident, CancellationToken ct = default);
 

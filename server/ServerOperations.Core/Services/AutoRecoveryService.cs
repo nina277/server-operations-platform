@@ -35,6 +35,7 @@ public class AutoRecoveryService(
     IRecoveryExecutionService executionService,
     IAuditLogRepository auditLogs,
     Notifications.INotificationService notificationService,
+    IMaintenanceService maintenance,
     TimeProvider timeProvider,
     ILogger<AutoRecoveryService> logger) : IAutoRecoveryService
 {
@@ -44,6 +45,17 @@ public class AutoRecoveryService(
         // 1. 対象で自動復旧が有効か
         if (!target.AutoRecoveryEnabled)
         {
+            return null;
+        }
+
+        // 計画停止中は勝手に直さない。停止作業そのものを障害と見て
+        // 復旧をかけると、作業を邪魔することになる。
+        var maintenanceState = await maintenance.GetStateAsync(target.Id, ct);
+        if (maintenanceState.SuppressAutoRecovery)
+        {
+            await RecordDeniedAsync(
+                incident, diagnosis.RecommendedActionId ?? "-",
+                $"メンテナンス期間中のため自動実行しません: {maintenanceState.Reason}", ct);
             return null;
         }
 

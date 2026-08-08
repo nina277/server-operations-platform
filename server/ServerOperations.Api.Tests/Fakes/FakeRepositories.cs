@@ -14,6 +14,12 @@ public class FakeUserRepository : IUserRepository
     public Task<User?> FindByIdAsync(long id, CancellationToken ct = default) =>
         Task.FromResult(Users.FirstOrDefault(u => u.Id == id));
 
+    public Task<List<User>> GetAllAsync(CancellationToken ct = default) =>
+        Task.FromResult(Users.OrderBy(u => u.Username).ToList());
+
+    public Task<int> CountActiveAdminsAsync(CancellationToken ct = default) =>
+        Task.FromResult(Users.Count(u => u.IsActive && u.Role == UserRole.OperatorAdmin));
+
     public Task<bool> AnyAsync(CancellationToken ct = default) => Task.FromResult(Users.Count > 0);
 
     public Task AddAsync(User user, CancellationToken ct = default)
@@ -143,4 +149,7 @@ public class TestTimeProvider(DateTimeOffset now) : TimeProvider
     public DateTimeOffset Now { get; set; } = now;
 
     public override DateTimeOffset GetUtcNow() => Now;
+
+    /// <summary>時間を進める。期間の前後で挙動が変わることを確かめるのに使う。</summary>
+    public void Advance(TimeSpan delta) => Now = Now.Add(delta);
 }

@@ -7,6 +7,19 @@ namespace ServerOperations.Core.Services;
 /// <summary>保持プロファイル。個別設定(custom)以外は既定値を使う。</summary>
 public record RetentionPolicy(int MetricsDays, int LogsDays, int IncidentsDays, int AuditDays)
 {
+    /// <summary>
+    /// 監査ログの保持日数の下限。
+    ///
+    /// 監査ログは改ざん・削除の証跡そのもので、他のデータとは意味が違う。
+    /// 管理者権限を取られた場合、保持期間を1日に縮めるだけで痕跡を消せてしまう。
+    /// 保持設定の変更自体は監査に残るが、その記録も同じ設定で消える対象になる。
+    /// そのため、どの経路から設定しても下回れないようにする。
+    /// </summary>
+    public const int MinAuditDays = 90;
+
+    /// <summary>下限を割る指定は下限へ引き上げる。画面からの入力は先に拒否される。</summary>
+    public int AuditDays { get; init; } = Math.Max(AuditDays, MinAuditDays);
+
     public static RetentionPolicy Compact => new(7, 7, 90, 90);
 
     public static RetentionPolicy Standard => new(30, 30, 365, 365);

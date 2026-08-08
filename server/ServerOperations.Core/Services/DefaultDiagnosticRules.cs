@@ -8,6 +8,23 @@ namespace ServerOperations.Core.Services;
 /// </summary>
 public static class DefaultDiagnosticRules
 {
+    /// <summary>
+    /// まだ登録されていない既定ルールだけを返す。
+    ///
+    /// 「テーブルが空のときだけ入れる」にすると、版を上げて既定ルールが増えても
+    /// **既に動いている環境には永久に届かない。**
+    /// 新しい収集を足しても、それを見る検知が入らないままになる。
+    ///
+    /// 名前で照合する。利用者が無効にしたルールは行として残るため、
+    /// 無効にしたものが復活することはない
+    /// (ルールを削除する口は用意しておらず、無効化までにとどめてある)。
+    /// </summary>
+    public static List<DiagnosticRule> Missing(IEnumerable<string> existingNames, DateTime nowUtc)
+    {
+        var existing = new HashSet<string>(existingNames, StringComparer.Ordinal);
+        return Create(nowUtc).Where(rule => !existing.Contains(rule.Name)).ToList();
+    }
+
     public static List<DiagnosticRule> Create(DateTime nowUtc) =>
     [
         new DiagnosticRule
@@ -80,7 +97,7 @@ public static class DefaultDiagnosticRules
             Name = "ディスク逼迫(使用率)",
             Classification = "DiskPressure",
             RuleType = DiagnosticRuleType.Threshold,
-            ConditionJson = """{"field":"diskUsagePercent","operator":">=","value":90}""",
+            ConditionJson = """{"field":"diskUsagePercent","operator":">=","value":85}""",
             Severity = IncidentSeverity.Medium,
             RecommendedActionId = null,
             Priority = 20,
@@ -89,4 +106,13 @@ public static class DefaultDiagnosticRules
             UpdatedAt = nowUtc,
         },
     ];
+
+    // CPU使用率の初期ルールは置かない。
+    // ビルドや動画変換のように、100%が正常な使い方であるコンテナは珍しくない。
+    // 既定で入れると正常な稼働をインシデントとして流し続けることになるため、
+    // 必要な対象にだけ利用者が足す。
+    //
+    // ディスクだけメモリより低い85%にしてある。
+    // メモリは逼迫しても解放されれば戻るが、ディスクは自然には減らない。
+    // 満杯になってから気づいても、消すものを選ぶ余裕が無い。
 }

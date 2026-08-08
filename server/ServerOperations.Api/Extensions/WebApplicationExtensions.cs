@@ -25,13 +25,19 @@ public static class WebApplicationExtensions
         await db.Database.MigrateAsync();
         logger.LogInformation("Database migration applied.");
 
-        // 基本診断ルール(ContainerStopped / HttpUnavailable / MemoryPressure / DiskPressure)の初期投入
-        if (!await db.DiagnosticRules.AnyAsync())
+        // 基本診断ルール(ContainerStopped / HttpUnavailable / MemoryPressure / DiskPressure)。
+        // 初回だけでなく、版を上げて既定ルールが増えたときも足りない分を投入する。
+        // 有効・無効に関わらず全件の名前で照合するため、無効にしたルールは復活しない。
+        var existingRuleNames = await db.DiagnosticRules.Select(rule => rule.Name).ToListAsync();
+        var missingRules = ServerOperations.Core.Services.DefaultDiagnosticRules.Missing(
+            existingRuleNames, DateTime.UtcNow);
+        if (missingRules.Count > 0)
         {
-            db.DiagnosticRules.AddRange(
-                ServerOperations.Core.Services.DefaultDiagnosticRules.Create(DateTime.UtcNow));
+            db.DiagnosticRules.AddRange(missingRules);
             await db.SaveChangesAsync();
-            logger.LogInformation("Default diagnostic rules seeded.");
+            logger.LogInformation(
+                "Default diagnostic rules added: {Names}",
+                string.Join(", ", missingRules.Select(rule => rule.Name)));
         }
 
         if (await db.Users.AnyAsync())

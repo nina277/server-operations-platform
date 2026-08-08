@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import MetricChart, { type ChartPoint } from '@/components/common/MetricChart.vue'
 import AsyncState from '@/components/common/AsyncState.vue'
 import SecretField from '@/components/common/SecretField.vue'
 import { extractErrorMessage } from '@/api/http'
@@ -16,10 +17,12 @@ import {
   runHealthCheck,
   testTargetConnection,
   updateTarget,
+  previewDeleteTarget,
+  deleteTarget,
 } from '@/api/operations'
 import { useAsyncData } from '@/composables/useAsyncData'
 import { useAuthStore } from '@/stores/auth'
-import { formatDateTime, resultTone } from '@/utils/format'
+import { formatDateTime, resultTone, toOptionalNumber } from '@/utils/format'
 import type {
   AdapterTemplate,
   ConnectionTestResult,
@@ -27,10 +30,12 @@ import type {
   IncidentLog,
   MetricSnapshot,
   Target,
+  TargetDeletePreview,
 } from '@/types/operations'
 
 const { t, locale } = useI18n()
 const route = useRoute()
+const router = useRouter()
 const auth = useAuthStore()
 
 const targetId = computed(() => Number(route.params.id))
@@ -51,10 +56,20 @@ const draft = ref<{
   description: string
   isEnabled: boolean
   autoRecoveryEnabled: boolean
+  /** 収集間隔(秒)。空文字は「全体の既定値に従う」を意味する。 */
+  collectionIntervalText: string
+  /** この対象で行う収集の種類。 */
+  enabledMonitors: string[]
   allowedContainersText: string
   settings: Record<string, string>
   credentials: Record<string, string | null>
 } | null>(null)
+
+// --- 削除 ---
+// 削除は元に戻せない。何が消えるかを見てから決められるようにする。
+const deletePreview = ref<TargetDeletePreview | null>(null)
+const deleting = ref(false)
+const deleteError = ref<string | null>(null)
 
 const saving = ref(false)
 const saveMessage = ref<string | null>(null)
@@ -68,7 +83,135 @@ const healthResult = ref<HealthCheck | null>(null)
 const healthError = ref<string | null>(null)
 const checking = ref(false)
 
+/**
+ * 収集値から折れ線に載せられる系列を取り出す。
+ * payloadJsonの形は収集の種類ごとに決まっているため、種類で見分ける。
+ * 壊れた値が1件混ざっても他の点は描けるよう、点ごとに握りつぶす。
+ */
+function seriesFrom(kind: string, extract: (payload: unknown) => number | null): ChartPoint[] {
+  const points: ChartPoint[] = []
+
+  for (const metric of metrics.value) {
+    if (metric.kind !== kind || metric.payloadJson === null) {
+      continue
+    }
+
+    try {
+      const value = extract(JSON.parse(metric.payloadJson))
+      if (value !== null && Number.isFinite(value)) {
+        points.push({ at: metric.collectedAt, value })
+      }
+    } catch {
+      // この点だけ落として続ける
+    }
+  }
+
+  return points
+}
+
+/** HTTP監視の応答時間。じりじり悪化しているのか急に落ちたのかを見分けられる。 */
+const latencyPoints = computed(() =>
+  seriesFrom('http', (payload) => {
+    const value = (payload as { latencyMs?: unknown }).latencyMs
+    return typeof value === 'number' ? value : null
+  }),
+)
+
+/** 動いていないコンテナの数。0でない状態が続いているかを見る。 */
+const stoppedContainerPoints = computed(() =>
+  seriesFrom('docker', (payload) => {
+    if (!Array.isArray(payload)) {
+      return null
+    }
+
+    return payload.filter((c) => {
+      const state = (c as { state?: unknown }).state
+      return typeof state === 'string' && state.toLowerCase() !== 'running'
+    }).length
+  }),
+)
+
+/**
+ * 収集した使用率のうち、そのときいちばん高かったコンテナの値を取る。
+ *
+ * 平均にすると、1つのコンテナが上限に張り付いていても
+ * 他が空いていれば低く見えてしまい、逼迫が消える。
+ * 手当てが要るのは最も高いコンテナなので、最大値を追う。
+ */
+function peakResource(field: 'cpuUsagePercent' | 'memoryUsagePercent'): ChartPoint[] {
+  return seriesFrom('resource', (payload) => {
+    const containers = (payload as { containers?: unknown }).containers
+    if (!Array.isArray(containers)) {
+      return null
+    }
+
+    const values = containers
+      .map((c) => (c as Record<string, unknown>)[field])
+      .filter((v): v is number => typeof v === 'number')
+
+    // 1件も取れていない収集は点を落とす。0として描くと「使っていない」に見える
+    return values.length === 0 ? null : Math.max(...values)
+  })
+}
+
+const cpuPoints = computed(() => peakResource('cpuUsagePercent'))
+const memoryPoints = computed(() => peakResource('memoryUsagePercent'))
+
+/**
+ * ホストのディスク使用率。最も埋まっているファイルシステムの値を追う。
+ *
+ * ディスクはメモリと違って自然には減らないため、傾きが見えることに意味がある。
+ * 「いつ満杯になるか」は、しきい値の一発判定より早く気づける。
+ */
+const diskPoints = computed(() =>
+  seriesFrom('disk', (payload) => {
+    const filesystems = (payload as { filesystems?: unknown }).filesystems
+    if (!Array.isArray(filesystems)) {
+      return null
+    }
+
+    const values = filesystems
+      .map((f) => (f as { usagePercent?: unknown }).usagePercent)
+      .filter((v): v is number => typeof v === 'number')
+
+    return values.length === 0 ? null : Math.max(...values)
+  }),
+)
+
 /** テンプレートのうち秘密でない入力。値は設定画面で編集できる。 */
+async function handlePreviewDelete(): Promise<void> {
+  deleting.value = true
+  deleteError.value = null
+
+  try {
+    deletePreview.value = await previewDeleteTarget(targetId.value)
+  } catch (e) {
+    deleteError.value = extractErrorMessage(e, t('common.error'))
+  } finally {
+    deleting.value = false
+  }
+}
+
+async function handleDelete(): Promise<void> {
+  deleting.value = true
+  deleteError.value = null
+
+  try {
+    await deleteTarget(targetId.value)
+    await router.push({ name: 'targets' })
+  } catch (e) {
+    deleteError.value = extractErrorMessage(e, t('common.error'))
+  } finally {
+    deleting.value = false
+  }
+}
+
+/**
+ * 入切できる収集の種類。テンプレートの能力から作る。
+ * 「推奨する監視項目」は案内の文章であり、選択肢ではない。
+ */
+const collectableMonitors = computed(() => capabilities.value?.collectableMonitors ?? [])
+
 const plainInputs = computed(() => template.value?.inputs.filter((i) => !i.secret) ?? [])
 const secretInputs = computed(() => template.value?.inputs.filter((i) => i.secret) ?? [])
 
@@ -78,6 +221,9 @@ function resetDraft(target: Target): void {
     description: target.description ?? '',
     isEnabled: target.isEnabled,
     autoRecoveryEnabled: target.autoRecoveryEnabled,
+    collectionIntervalText:
+      target.collectionIntervalSeconds === null ? '' : String(target.collectionIntervalSeconds),
+    enabledMonitors: [...target.enabledMonitors],
     allowedContainersText: target.allowedContainers.join('\n'),
     settings: { ...target.settings },
     credentials: {},
@@ -144,6 +290,8 @@ async function handleSave(): Promise<void> {
       description: draft.value.description.length > 0 ? draft.value.description : null,
       isEnabled: draft.value.isEnabled,
       autoRecoveryEnabled: draft.value.autoRecoveryEnabled,
+      collectionIntervalSeconds: toOptionalNumber(draft.value.collectionIntervalText),
+      enabledMonitors: draft.value.enabledMonitors,
       allowedContainers,
       settings: draft.value.settings,
       credentials,
@@ -296,6 +444,47 @@ async function handleHealthCheck(): Promise<void> {
           </p>
 
           <div class="form-field">
+            <label for="target-interval">{{ t('targets.collectionInterval') }}</label>
+            <input
+              id="target-interval"
+              v-model="draft.collectionIntervalText"
+              type="number"
+              min="60"
+              max="3600"
+              :placeholder="t('targets.collectionIntervalDefault')"
+              aria-describedby="target-interval-help"
+              data-testid="collection-interval"
+            />
+            <p id="target-interval-help" class="form-field__help">
+              {{ t('targets.collectionIntervalHelp') }}
+            </p>
+          </div>
+
+          <fieldset v-if="collectableMonitors.length > 0" class="monitors">
+            <legend>{{ t('targets.monitors') }}</legend>
+            <p class="form-field__help">{{ t('targets.monitorsHelp') }}</p>
+
+            <div
+              v-for="monitor in collectableMonitors"
+              :key="monitor"
+              class="form-field form-field--inline"
+            >
+              <input
+                :id="`monitor-${monitor}`"
+                v-model="draft.enabledMonitors"
+                type="checkbox"
+                :value="monitor"
+                :data-testid="`monitor-${monitor}`"
+              />
+              <label :for="`monitor-${monitor}`">{{ t(`monitorKinds.${monitor}`) }}</label>
+            </div>
+
+            <p v-if="draft.enabledMonitors.length === 0" class="form-field__help">
+              {{ t('targets.monitorsNoneNote') }}
+            </p>
+          </fieldset>
+
+          <div class="form-field">
             <label for="target-containers">{{ t('targets.allowedContainers') }}</label>
             <textarea
               id="target-containers"
@@ -338,6 +527,42 @@ async function handleHealthCheck(): Promise<void> {
 
         <section aria-labelledby="metrics-heading" class="section">
           <h2 id="metrics-heading" class="section__title">{{ t('targets.metrics') }}</h2>
+
+          <MetricChart
+            v-if="latencyPoints.length > 0"
+            :title="t('targets.latency')"
+            :points="latencyPoints"
+            unit="ms"
+            data-testid="latency-chart"
+          />
+          <MetricChart
+            v-if="stoppedContainerPoints.length > 0"
+            :title="t('targets.stoppedContainers')"
+            :points="stoppedContainerPoints"
+            data-testid="stopped-chart"
+          />
+          <MetricChart
+            v-if="cpuPoints.length > 0"
+            :title="t('targets.peakCpu')"
+            :points="cpuPoints"
+            unit="%"
+            data-testid="cpu-chart"
+          />
+          <MetricChart
+            v-if="memoryPoints.length > 0"
+            :title="t('targets.peakMemory')"
+            :points="memoryPoints"
+            unit="%"
+            data-testid="memory-chart"
+          />
+          <MetricChart
+            v-if="diskPoints.length > 0"
+            :title="t('targets.peakDisk')"
+            :points="diskPoints"
+            unit="%"
+            data-testid="disk-chart"
+          />
+
           <div v-if="metrics.length > 0" class="table-scroll">
             <table class="table">
               <thead>
@@ -363,6 +588,61 @@ async function handleHealthCheck(): Promise<void> {
             </table>
           </div>
           <p v-else class="muted">{{ t('common.empty') }}</p>
+        </section>
+
+        <section
+          v-if="auth.isAdmin"
+          aria-labelledby="delete-heading"
+          class="section section--danger"
+          data-testid="delete-section"
+        >
+          <h2 id="delete-heading" class="section__title">{{ t('targets.delete') }}</h2>
+          <p class="form-field__help">{{ t('targets.deleteHelp') }}</p>
+
+          <p v-if="deleteError" role="alert" class="message message--error">{{ deleteError }}</p>
+
+          <button
+            v-if="deletePreview === null"
+            type="button"
+            class="button"
+            :disabled="deleting"
+            data-testid="preview-delete"
+            @click="handlePreviewDelete"
+          >
+            {{ t('targets.deletePreview') }}
+          </button>
+
+          <div v-else data-testid="delete-preview">
+            <p>{{ t('targets.deleteConfirm', { name: deletePreview.targetName }) }}</p>
+
+            <dl class="definition">
+              <dt>{{ t('nav.incidents') }}</dt>
+              <dd>{{ deletePreview.incidents }}</dd>
+              <dt>{{ t('targets.metrics') }}</dt>
+              <dd>{{ deletePreview.metricSnapshots }}</dd>
+              <dt>{{ t('incidents.recoveryActions') }}</dt>
+              <dd>{{ deletePreview.recoveryActions }}</dd>
+              <dt>{{ t('nav.notifications') }}</dt>
+              <dd>{{ deletePreview.notifications }}</dd>
+            </dl>
+
+            <p class="form-field__help">{{ t('targets.deleteAuditNote') }}</p>
+
+            <div class="inline-form">
+              <button
+                type="button"
+                class="button button--danger"
+                :disabled="deleting"
+                data-testid="confirm-delete"
+                @click="handleDelete"
+              >
+                {{ t('targets.deleteExecute') }}
+              </button>
+              <button type="button" class="button" @click="deletePreview = null">
+                {{ t('common.cancel') }}
+              </button>
+            </div>
+          </div>
         </section>
 
         <section aria-labelledby="logs-heading" class="section">
@@ -421,6 +701,18 @@ async function handleHealthCheck(): Promise<void> {
 .message--ok {
   color: var(--color-low);
   background-color: var(--color-low-bg);
+}
+
+.monitors {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+}
+
+.monitors legend {
+  font-weight: 600;
+  padding: 0 var(--spacing-xs);
 }
 
 .form-field--inline {

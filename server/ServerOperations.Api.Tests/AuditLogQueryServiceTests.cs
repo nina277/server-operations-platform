@@ -1,5 +1,6 @@
 using ServerOperations.Api.DTOs.Common;
 using ServerOperations.Api.Services.Implementations;
+using ServerOperations.Api.Tests.Fakes;
 using ServerOperations.Core.Models.Auth;
 using ServerOperations.Core.Repositories.Interfaces;
 
@@ -10,8 +11,9 @@ public class AuditLogQueryServiceTests
     private static readonly DateTime BaseTime = new(2026, 7, 10, 12, 0, 0, DateTimeKind.Utc);
 
     private readonly FakeAuditLogRepository _auditLogs = new();
+    private readonly FakeAuditService _audit = new();
 
-    private AuditLogQueryService CreateService() => new(_auditLogs);
+    private AuditLogQueryService CreateService() => new(_auditLogs, _audit);
 
     private void Seed(
         string actorName,

@@ -27,6 +27,34 @@ public static class EndpointValidator
         await ValidateHostAsync(uri, ct);
     }
 
+    /// <summary>
+    /// ホスト名とポートの組を検証する。SMTPのようにURLではない接続先に使う。
+    /// URLと同じ基準(ループバック・リンクローカル等の遮断)を適用する。
+    /// </summary>
+    public static async Task ValidateHostPortAsync(
+        string host, int port, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(host))
+        {
+            throw AppException.BadRequest("invalid_host", "接続先のホスト名を指定してください。");
+        }
+
+        if (port is < 1 or > 65535)
+        {
+            throw AppException.BadRequest("invalid_port", "ポート番号は1〜65535の範囲で指定してください。");
+        }
+
+        // ホスト名に別の情報を混ぜて渡されないようにする
+        var trimmed = host.Trim();
+        if (trimmed.Contains('/') || trimmed.Contains(':') && !IPAddress.TryParse(trimmed, out _))
+        {
+            throw AppException.BadRequest(
+                "invalid_host", "接続先はホスト名またはIPアドレスだけを指定してください。");
+        }
+
+        await ValidateResolvedHostAsync(trimmed, ct);
+    }
+
     private static Uri ParseUri(string value, string[] allowedSchemes, string? schemeMessage = null)
     {
         if (!Uri.TryCreate(value?.Trim(), UriKind.Absolute, out var uri))
@@ -52,24 +80,28 @@ public static class EndpointValidator
         return uri;
     }
 
-    private static async Task ValidateHostAsync(Uri uri, CancellationToken ct)
+    private static Task ValidateHostAsync(Uri uri, CancellationToken ct) =>
+        ValidateResolvedHostAsync(uri.Host, ct);
+
+    /// <summary>ホスト名またはIPを解決し、遮断対象を含んでいれば拒否する。</summary>
+    private static async Task ValidateResolvedHostAsync(string host, CancellationToken ct)
     {
         IPAddress[] addresses;
 
-        if (IPAddress.TryParse(uri.Host, out var literal))
+        if (IPAddress.TryParse(host, out var literal))
         {
             addresses = [literal];
         }
         else
         {
-            if (uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase))
+            if (host.Equals("localhost", StringComparison.OrdinalIgnoreCase))
             {
                 throw Blocked();
             }
 
             try
             {
-                addresses = await Dns.GetHostAddressesAsync(uri.Host, ct);
+                addresses = await Dns.GetHostAddressesAsync(host, ct);
             }
             catch (SocketException)
             {

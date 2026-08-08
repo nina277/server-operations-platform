@@ -24,6 +24,7 @@ public class LabScenarioTests
     private readonly FakeNotificationService _notifications = new();
     private readonly TestTimeProvider _time = new(BaseTime);
     private readonly RecoveryLimits _limits = new();
+    private readonly FakeMaintenanceService _maintenance = new();
 
     private static List<DiagnosticRule> Rules() => DefaultDiagnosticRules.Create(BaseTime.UtcDateTime);
 
@@ -37,6 +38,7 @@ public class LabScenarioTests
             _execution,
             _auditLogs,
             _notifications,
+            _maintenance,
             _time,
             NullLogger<AutoRecoveryService>.Instance);
     }
@@ -207,20 +209,6 @@ public class LabScenarioTests
         Assert.Equal(IncidentSeverity.High, match.Rule.Severity);
     }
 
-    [Fact]
-    public void SC03_使用率だけが高い場合は深刻度を下げ操作を推奨しない()
-    {
-        var matches = _ruleEngine.Evaluate(Rules(), new DiagnosticContext
-        {
-            MemoryUsagePercent = 95,
-        });
-
-        var match = Assert.Single(matches, m => m.Rule.Classification == "MemoryPressure");
-        Assert.Equal(IncidentSeverity.Medium, match.Rule.Severity);
-        // 使用率が高いだけでは何も操作しない
-        Assert.Null(match.Rule.RecommendedActionId);
-    }
-
     // --- SC-04: ディスク逼迫 ---
 
     [Fact]
@@ -257,6 +245,66 @@ public class LabScenarioTests
 
         Assert.Null(action);
         Assert.Empty(_execution.Executed);
+    }
+
+    // --- SC-06: ホストのディスク使用率 ---
+
+    [Fact]
+    public void SC06_ディスク使用率がしきい値を超えたらDiskPressureとして検知する()
+    {
+        // ログ検知は「満杯になってから」しか当たらない。
+        // 使用率で見ることで、壊れる前に気づける経路があることを確かめる。
+        var matches = _ruleEngine.Evaluate(Rules(), new DiagnosticContext
+        {
+            DiskUsagePercent = 92,
+        });
+
+        var match = Assert.Single(
+            matches,
+            m => m.Rule.Classification == "DiskPressure"
+                && m.Rule.RuleType == DiagnosticRuleType.Threshold);
+        Assert.Equal(IncidentSeverity.Medium, match.Rule.Severity);
+
+        // 消してよいものを決められるのは人だけなので、操作は推奨しない
+        Assert.Null(match.Rule.RecommendedActionId);
+    }
+
+    [Fact]
+    public void SC06_ディスク使用率が取れていなければ何も検知しない()
+    {
+        // 値が無いことを「しきい値を下回っている」と読み替えると逼迫を見逃す
+        var matches = _ruleEngine.Evaluate(Rules(), new DiagnosticContext());
+
+        Assert.DoesNotContain(matches, m => m.Rule.Classification == "DiskPressure");
+    }
+
+    // --- SC-07: コンテナのリソース逼迫 ---
+
+    [Fact]
+    public void SC07_使用率だけが高い場合は深刻度を下げ操作を推奨しない()
+    {
+        var matches = _ruleEngine.Evaluate(Rules(), new DiagnosticContext
+        {
+            MemoryUsagePercent = 95,
+        });
+
+        var match = Assert.Single(matches, m => m.Rule.Classification == "MemoryPressure");
+        Assert.Equal(IncidentSeverity.Medium, match.Rule.Severity);
+        // 使用率が高いだけでは何も操作しない
+        Assert.Null(match.Rule.RecommendedActionId);
+    }
+
+    [Fact]
+    public void SC07_CPU使用率の初期ルールは置かない()
+    {
+        // ビルドや動画変換のように100%が正常な使い方のコンテナは珍しくない。
+        // 既定で入れると正常な稼働をインシデントとして流し続けることになる。
+        var matches = _ruleEngine.Evaluate(Rules(), new DiagnosticContext
+        {
+            CpuUsagePercent = 100,
+        });
+
+        Assert.Empty(matches);
     }
 
     // --- SC-05: 未知のログ ---

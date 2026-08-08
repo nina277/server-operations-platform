@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using ServerOperations.Core.Services;
 
 namespace ServerOperations.Api.DTOs.Operations;
 
@@ -19,7 +20,8 @@ public record AdapterTemplateDto(
     IReadOnlyList<string> RecommendedMonitors,
     IReadOnlyList<string> InitialRules,
     IReadOnlyList<string> AllowedOperations,
-    IReadOnlyList<string> Capabilities);
+    IReadOnlyList<string> Capabilities,
+    IReadOnlyList<string> CollectableMonitors);
 
 public record TargetDto
 {
@@ -38,6 +40,18 @@ public record TargetDto
 
     /// <summary>操作を許可するコンテナ名。空の場合はどのコンテナも操作できない。</summary>
     public required IReadOnlyList<string> AllowedContainers { get; init; }
+
+    /// <summary>
+    /// この対象の収集間隔(秒)。nullなら全体の既定値で動く。
+    /// </summary>
+    public int? CollectionIntervalSeconds { get; init; }
+
+    /// <summary>
+    /// この対象で行う収集の種類。
+    /// 未設定でもテンプレートで行えるものすべてを展開して返すため、
+    /// 画面側は「空 = 何もしない」と読み違えずに済む。
+    /// </summary>
+    public required IReadOnlyList<string> EnabledMonitors { get; init; }
 
     /// <summary>非秘密の設定値。秘密値(資格情報)は種別名のみconfiguredCredentialsで返す。</summary>
     public required IReadOnlyDictionary<string, string> Settings { get; init; }
@@ -90,6 +104,20 @@ public record UpdateTargetRequest
     /// </summary>
     public List<string> AllowedContainers { get; init; } = [];
 
+    /// <summary>
+    /// この対象の収集間隔(秒)。nullなら全体の既定値を使う。
+    /// 実際に使える値へ丸められるため、指定した値がそのまま返るとは限らない。
+    /// </summary>
+    [Range(CollectionInterval.MinSeconds, CollectionInterval.MaxSeconds,
+        ErrorMessage = "収集間隔は60〜3600秒の範囲で指定してください。")]
+    public int? CollectionIntervalSeconds { get; init; }
+
+    /// <summary>
+    /// この対象で行う収集の種類。省略(null)ならテンプレートで行えるものすべて。
+    /// テンプレートで行えない種類を指定すると拒否される。
+    /// </summary>
+    public List<string>? EnabledMonitors { get; init; }
+
     public Dictionary<string, string> Settings { get; init; } = [];
 
     /// <summary>更新する資格情報のみ指定する(省略したものは維持)。</summary>
@@ -119,5 +147,40 @@ public record TargetCapabilitiesDto
 
     public required IReadOnlyList<string> RecommendedMonitors { get; init; }
 
+    /// <summary>
+    /// 対象ごとに入切できる収集の種類。画面の選択肢はこれで作る。
+    /// RecommendedMonitors は案内の文章であり、選択肢ではない。
+    /// </summary>
+    public required IReadOnlyList<string> CollectableMonitors { get; init; }
+
     public required IReadOnlyList<string> InitialRules { get; init; }
+}
+
+/// <summary>
+/// 監視対象を削除したときに一緒に消えるものの件数。
+/// 削除は元に戻せないため、何が消えるかを先に示す。
+/// </summary>
+public record TargetDeletePreviewDto
+{
+    public required long TargetId { get; init; }
+
+    public required string TargetName { get; init; }
+
+    public required int MetricSnapshots { get; init; }
+
+    public required int Incidents { get; init; }
+
+    public required int IncidentLogs { get; init; }
+
+    public required int Diagnoses { get; init; }
+
+    public required int RecoveryActions { get; init; }
+
+    public required int HealthChecks { get; init; }
+
+    public required int Notifications { get; init; }
+
+    public required int MaintenanceWindows { get; init; }
+
+    public required int Total { get; init; }
 }

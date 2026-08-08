@@ -11,4 +11,10 @@ public interface IAuditLogQueryService
         AuditLogFilter filter, PagingQuery paging, CancellationToken ct = default);
 
     Task<AuditLogFilterOptionsDto> GetFilterOptionsAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// 検索条件に沿った監査ログをCSVで返す。件数には上限があり、
+    /// 超える場合は上限までを返す(全件を1回で吐き出させない)。
+    /// </summary>
+    Task<string> ExportCsvAsync(AuditLogFilter filter, CancellationToken ct = default);
 }

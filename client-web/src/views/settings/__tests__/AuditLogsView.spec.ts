@@ -25,9 +25,12 @@ const auditLog: AuditLog = {
 const searchAuditLogs = vi.fn<(query: AuditLogQuery) => Promise<PagedResult<AuditLog>>>()
 const fetchAuditLogFilterOptions = vi.fn<() => Promise<AuditLogFilterOptions>>()
 
+const exportAuditLogs = vi.fn<(query: AuditLogQuery) => Promise<Blob>>()
+
 vi.mock('@/api/settings', () => ({
   searchAuditLogs: (query: AuditLogQuery) => searchAuditLogs(query),
   fetchAuditLogFilterOptions: () => fetchAuditLogFilterOptions(),
+  exportAuditLogs: (query: AuditLogQuery) => exportAuditLogs(query),
 }))
 
 async function mountView() {
@@ -50,6 +53,11 @@ describe('AuditLogsView', () => {
       totalCount: 1,
       totalPages: 1,
     })
+    exportAuditLogs.mockResolvedValue(new Blob(['occurredAt'], { type: 'text/csv' }))
+    // jsdomにはBlob URLの実装が無いため、呼び出しだけを見る
+    globalThis.URL.createObjectURL = vi.fn<() => string>().mockReturnValue('blob:test')
+    globalThis.URL.revokeObjectURL = vi.fn<() => void>()
+
     fetchAuditLogFilterOptions.mockResolvedValue({
       targetTypes: ['RecoveryAction', 'User'],
       actions: ['auth.login', 'recovery.execute'],
@@ -134,5 +142,47 @@ describe('AuditLogsView', () => {
 
     const options = wrapper.get('#audit-target-type').findAll('option')
     expect(options.map((o) => o.text())).toEqual(['すべての対象種別', 'RecoveryAction', 'User'])
+  })
+
+  // --- CSV出力 ---
+
+  it('CSVを取り出せる', async () => {
+    const wrapper = await mountView()
+
+    await wrapper.get('[data-testid="export-csv"]').trigger('click')
+    await flushPromises()
+
+    expect(exportAuditLogs).toHaveBeenCalledTimes(1)
+  })
+
+  it('表示中の絞り込みと同じ条件で取り出す', async () => {
+    // 画面で見えている範囲と出力される範囲がずれると、検証の裏付けにならない
+    const wrapper = await mountView()
+
+    await wrapper.get('#audit-actor').setValue('admin')
+    await wrapper.get('[data-testid="export-csv"]').trigger('click')
+    await flushPromises()
+
+    expect(lastCall(exportAuditLogs.mock.calls)[0].actorName).toBe('admin')
+  })
+
+  it('取り出したBlobを解放する', async () => {
+    // 解放しないとページを離れるまでメモリに残る
+    const wrapper = await mountView()
+
+    await wrapper.get('[data-testid="export-csv"]').trigger('click')
+    await flushPromises()
+
+    expect(globalThis.URL.revokeObjectURL).toHaveBeenCalledWith('blob:test')
+  })
+
+  it('取り出しに失敗したら理由を出す', async () => {
+    exportAuditLogs.mockRejectedValue(new Error('failed'))
+
+    const wrapper = await mountView()
+    await wrapper.get('[data-testid="export-csv"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('取り出しに失敗しました')
   })
 })

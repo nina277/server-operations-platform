@@ -18,6 +18,8 @@ public class AutoRecoveryServiceTests
     private readonly TestTimeProvider _time = new(BaseTime);
     private readonly RecoveryLimits _limits = new();
 
+    private readonly FakeMaintenanceService _maintenance = new();
+
     private AutoRecoveryService CreateSut()
     {
         // 実行後の状態を検証できるよう、Fake実行サービスへリポジトリを渡す
@@ -28,7 +30,8 @@ public class AutoRecoveryServiceTests
     private AutoRecoveryService CreateSutCore() => new(
         _actions, new RecoveryActionCatalog(),
         new RecoveryRateLimiter(_actions, _limits, _time),
-        _execution, _auditLogs, _notifications, _time, NullLogger<AutoRecoveryService>.Instance);
+        _execution, _auditLogs, _notifications, _maintenance, _time,
+        NullLogger<AutoRecoveryService>.Instance);
 
     private static MonitoringTarget Target(
         bool autoRecoveryEnabled = true, params string[] allowedContainers) => new()
@@ -153,6 +156,54 @@ public class AutoRecoveryServiceTests
 
         Assert.Null(action);
         Assert.Empty(_execution.Executed);
+    }
+
+    [Fact]
+    public async Task メンテナンス期間中は自動復旧しない()
+    {
+        // 停止作業そのものを障害と見て復旧をかけると、作業を邪魔することになる
+        _maintenance.State = new MaintenanceState
+        {
+            SuppressAutoRecovery = true,
+            Reason = "ホストのカーネル更新",
+        };
+
+        var action = await CreateSut().TryRecoverAsync(Target(), Incident(), Diagnosis());
+
+        Assert.Null(action);
+        Assert.Empty(_execution.Executed);
+    }
+
+    [Fact]
+    public async Task メンテナンス期間で止めた理由を監査に残す()
+    {
+        // なぜ自動復旧が動かなかったのかを後から説明できる必要がある
+        _maintenance.State = new MaintenanceState
+        {
+            SuppressAutoRecovery = true,
+            Reason = "ホストのカーネル更新",
+        };
+
+        await CreateSut().TryRecoverAsync(Target(), Incident(), Diagnosis());
+
+        var entry = Assert.Single(_auditLogs.Logs, a => a.Action == "recovery.auto.denied");
+        Assert.Contains("メンテナンス", entry.Details ?? string.Empty);
+    }
+
+    [Fact]
+    public async Task 通知だけを止める期間なら自動復旧は動く()
+    {
+        _maintenance.State = new MaintenanceState
+        {
+            SuppressNotifications = true,
+            SuppressAutoRecovery = false,
+            Reason = "通知の試験中",
+        };
+
+        var action = await CreateSut().TryRecoverAsync(Target(), Incident(), Diagnosis());
+
+        Assert.NotNull(action);
+        Assert.Single(_execution.Executed);
     }
 
     [Fact]

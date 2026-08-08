@@ -24,13 +24,35 @@ public class TargetCollectionService(
     IIncidentLogRepository incidentLogs,
     IDockerAdapter dockerAdapter,
     IHttpAdapter httpAdapter,
+    IHostMetricsAdapter hostMetricsAdapter,
+    IAdapterTemplateCatalog templateCatalog,
     IDataProtectionProvider dataProtectionProvider,
     IDiagnosisService diagnosisService,
+    IResourceThresholdDetector resourceThresholdDetector,
+    ILogScanDetector logScanDetector,
     Notifications.INotificationService notificationService,
     IAutoRecoveryService autoRecoveryService,
     TimeProvider timeProvider,
     ILogger<TargetCollectionService> logger) : ITargetCollectionService
 {
+    /// <summary>
+    /// 1回の収集でリソース使用率を測るコンテナ数の上限。
+    /// 1件あたり約1秒かかるため、際限なく増やすと収集間隔を超える。
+    /// </summary>
+    public const int MaxStatsContainers = 20;
+
+    /// <summary>リソース使用率の同時取得数。対象のDocker APIへ一度に集中させない。</summary>
+    private const int StatsConcurrency = 4;
+
+    /// <summary>
+    /// 1回の収集でログを走査する稼働中コンテナ数の上限。
+    /// 使用率(1件あたり約1秒)より軽いが、コンテナごとに別のAPI呼び出しになる点は同じ。
+    /// </summary>
+    public const int MaxLogScanContainers = 20;
+
+    /// <summary>ログ取得の同時実行数。使用率と同じ理由で対象へ一度に集中させない。</summary>
+    private const int LogScanConcurrency = 4;
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     // TargetServiceと同じ目的文字列(暗号化した資格情報を復号するため一致必須)
@@ -49,18 +71,45 @@ public class TargetCollectionService(
             ? []
             : JsonSerializer.Deserialize<Dictionary<string, string>>(target.Profile.SettingsJson, JsonOptions) ?? [];
 
+        var template = templateCatalog.Find(target.TemplateId);
+        if (template is null)
+        {
+            logger.LogWarning(
+                "Unknown template {TemplateId} for target {TargetId}", target.TemplateId, target.Id);
+            return;
+        }
+
+        // この対象で行う収集だけに絞る。未設定ならテンプレートで行えるものすべて。
+        var enabled = EnabledMonitors.Resolve(target, template);
+
         try
         {
             switch (target.TemplateId)
             {
                 case "docker-host":
-                    await CollectDockerAsync(target.Id, settings["endpoint"], composeProject: null, ct);
+                    await CollectDockerAsync(
+                        target.Id, settings["endpoint"], composeProject: null, enabled, ct);
+
+                    // ホストのディスク使用率はDocker APIでは取れないため、別の口から取る。
+                    // 未設定なら何もしない(設定していない対象で失敗を積み上げない)。
+                    if (enabled.Contains(MonitorKinds.DiskUsage, StringComparer.Ordinal))
+                    {
+                        await CollectDiskUsageAsync(
+                            target.Id, settings.GetValueOrDefault("metricsEndpoint"), ct);
+                    }
+
                     break;
                 case "docker-compose-app":
-                    await CollectDockerAsync(target.Id, settings["endpoint"], settings.GetValueOrDefault("composeProject"), ct);
+                    await CollectDockerAsync(
+                        target.Id, settings["endpoint"],
+                        settings.GetValueOrDefault("composeProject"), enabled, ct);
                     break;
                 case "web-site":
-                    await CollectHttpAsync(target, settings, ct);
+                    if (enabled.Contains(MonitorKinds.HttpCheck, StringComparer.Ordinal))
+                    {
+                        await CollectHttpAsync(target, settings, ct);
+                    }
+
                     break;
                 default:
                     logger.LogWarning("Unknown template {TemplateId} for target {TargetId}", target.TemplateId, target.Id);
@@ -76,11 +125,159 @@ public class TargetCollectionService(
     }
 
     private async Task CollectDockerAsync(
-        long targetId, string endpoint, string? composeProject, CancellationToken ct)
+        long targetId,
+        string endpoint,
+        string? composeProject,
+        IReadOnlyList<string> enabledMonitors,
+        CancellationToken ct)
     {
+        var collectState = enabledMonitors.Contains(MonitorKinds.ContainerState, StringComparer.Ordinal);
+        var collectResources = enabledMonitors.Contains(MonitorKinds.ResourceUsage, StringComparer.Ordinal);
+        if (!collectState && !collectResources)
+        {
+            return;
+        }
+
+        var collectLogs = enabledMonitors.Contains(MonitorKinds.LogExcerpt, StringComparer.Ordinal);
+
         var now = timeProvider.GetUtcNow().UtcDateTime;
+
+        // リソース使用率はコンテナごとの値のため、どのコンテナがあるかを知るのに一覧が要る。
+        // 状態の収集を外していても、使用率を取るならこの呼び出しは避けられない。
         var containers = await dockerAdapter.ListContainersAsync(endpoint, composeProject, ct);
 
+        if (collectState)
+        {
+            await CollectContainerStateAsync(
+                targetId, endpoint, containers, collectLogs, now, ct);
+        }
+
+        // 稼働中コンテナのログ走査。停止コンテナのログは上の状態収集側で扱う。
+        if (collectLogs)
+        {
+            await ScanRunningContainerLogsAsync(targetId, endpoint, containers, ct);
+        }
+
+        // 使用率の取得は1件あたり約1秒かかる。
+        // 停止コンテナの検出を待たせないよう、状態の収集を先に終わらせてから行う。
+        if (collectResources)
+        {
+            await CollectResourceUsageAsync(targetId, endpoint, containers, ct);
+        }
+    }
+
+    /// <summary>
+    /// 稼働中コンテナのログ末尾を走査し、ログのルールに当たったものをインシデント化する。
+    ///
+    /// 停止コンテナのログは状態収集の側で取っている。ここは
+    /// **動き続けたままエラーを出しているコンテナ**を拾うための経路で、
+    /// これが無いとログ検知のルールは停止後にしか当たらない。
+    /// </summary>
+    private async Task ScanRunningContainerLogsAsync(
+        long targetId, string endpoint, IReadOnlyList<ContainerInfo> containers, CancellationToken ct)
+    {
+        // 停止コンテナはここでは扱わない(状態収集の側で二重にインシデント化しないため)。
+        // 順序を固定するため名前で並べる
+        var running = containers
+            .Where(c => c.State.Equals("running", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(c => c.Name, StringComparer.Ordinal)
+            .ToList();
+
+        var scanned = running.Take(MaxLogScanContainers).ToList();
+        if (scanned.Count == 0)
+        {
+            return;
+        }
+
+        var excerpts = new string?[scanned.Count];
+        using (var gate = new SemaphoreSlim(LogScanConcurrency))
+        {
+            await Task.WhenAll(scanned.Select(async (container, index) =>
+            {
+                await gate.WaitAsync(ct);
+                try
+                {
+                    excerpts[index] = await dockerAdapter.GetContainerLogsAsync(
+                        endpoint, container.Id, 50, ct);
+                }
+                catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+                {
+                    // 1件の取得失敗で対象全体の収集を落とさない
+                    excerpts[index] = null;
+                }
+                finally
+                {
+                    gate.Release();
+                }
+            }));
+        }
+
+        var samples = new List<ContainerLogSample>();
+        for (var i = 0; i < scanned.Count; i++)
+        {
+            if (!string.IsNullOrWhiteSpace(excerpts[i]))
+            {
+                samples.Add(new ContainerLogSample(scanned[i].Name, excerpts[i]!));
+            }
+        }
+
+        if (running.Count > scanned.Count)
+        {
+            logger.LogInformation(
+                "Log scan covered {Scanned} of {Total} running containers on target {TargetId}.",
+                scanned.Count, running.Count, targetId);
+        }
+
+        var now = timeProvider.GetUtcNow().UtcDateTime;
+
+        foreach (var alert in await logScanDetector.DetectAsync(samples, ct))
+        {
+            // 署名には一致した部分だけを渡す。ログ末尾そのものを渡すと
+            // 行が流れるたびに別の署名になり、同じ障害が毎回新しいインシデントになる。
+            var (incident, shouldDiagnose) = await UpsertIncidentAsync(
+                targetId,
+                classification: alert.Rule.Classification,
+                service: alert.ContainerName,
+                title: $"コンテナ {alert.ContainerName}: {alert.Rule.Name}",
+                severity: alert.Rule.Severity,
+                logExcerpt: alert.MatchedValue,
+                ct);
+
+            if (!shouldDiagnose)
+            {
+                // 継続中の同じ障害。ログを積み増すと同じ内容で際限なく増える
+                continue;
+            }
+
+            await incidentLogs.AddAsync(new IncidentLog
+            {
+                TargetId = targetId,
+                IncidentId = incident.Id,
+                CollectedAt = now,
+                Source = alert.ContainerName,
+                MaskedContent = Truncate(alert.MaskedLog, 16000),
+            }, ct);
+            await incidentLogs.SaveChangesAsync(ct);
+
+            // 診断までは行うが、**復旧はここでは試みない。**
+            //
+            // ログの中身は監視対象の側が自由に書けるものであり、
+            // 収集した文字列をそのまま自動実行の引き金にすると、
+            // ログに書き込める者が稼働中のコンテナを再起動させられることになる。
+            // (プロンプト注入の試験ST-AIが通る経路もここ)
+            // 停止コンテナの復旧と違い、動いているものを止める判断は人へ残す。
+            await diagnosisService.DiagnoseAsync(incident, alert.Context, ct);
+        }
+    }
+
+    private async Task CollectContainerStateAsync(
+        long targetId,
+        string endpoint,
+        IReadOnlyList<ContainerInfo> containers,
+        bool collectLogs,
+        DateTime now,
+        CancellationToken ct)
+    {
         var payload = containers.Select(c => new
         {
             c.Name,
@@ -105,14 +302,20 @@ public class TargetCollectionService(
             c.State.Equals("exited", StringComparison.OrdinalIgnoreCase) ||
             c.State.Equals("dead", StringComparison.OrdinalIgnoreCase)))
         {
-            string logExcerpt;
-            try
+            // ログ抜粋を外してある対象では取りに行かない。
+            // 一覧とは別のAPI呼び出しであり、外せば実際に呼ばなくなる。
+            string logExcerpt = string.Empty;
+            if (collectLogs)
             {
-                logExcerpt = await dockerAdapter.GetContainerLogsAsync(endpoint, container.Id, 50, ct);
-            }
-            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
-            {
-                logExcerpt = string.Empty;
+                try
+                {
+                    logExcerpt = await dockerAdapter.GetContainerLogsAsync(
+                        endpoint, container.Id, 50, ct);
+                }
+                catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+                {
+                    logExcerpt = string.Empty;
+                }
             }
 
             var (incident, shouldDiagnose) = await UpsertIncidentAsync(
@@ -148,6 +351,176 @@ public class TargetCollectionService(
                 }, ct);
 
                 await TryAutoRecoverAsync(targetId, incident, diagnosis, ct);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 稼働中コンテナのCPU・メモリ使用率を収集し、しきい値ルールに当たったものをインシデント化する。
+    /// 使用率が取れなかったコンテナは記録に残すが、正常とは扱わない。
+    /// </summary>
+    private async Task CollectResourceUsageAsync(
+        long targetId, string endpoint, IReadOnlyList<ContainerInfo> containers, CancellationToken ct)
+    {
+        // 停止中のコンテナに使用率は無い。順序を固定するため名前で並べる
+        var running = containers
+            .Where(c => c.State.Equals("running", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(c => c.Name, StringComparer.Ordinal)
+            .ToList();
+
+        var measured = running.Take(MaxStatsContainers).ToList();
+        var skipped = running.Count - measured.Count;
+
+        var stats = new ContainerStats?[measured.Count];
+        using (var gate = new SemaphoreSlim(StatsConcurrency))
+        {
+            await Task.WhenAll(measured.Select(async (container, index) =>
+            {
+                await gate.WaitAsync(ct);
+                try
+                {
+                    stats[index] = await dockerAdapter.GetContainerStatsAsync(endpoint, container.Id, ct);
+                }
+                catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+                {
+                    // 1件の取得失敗で対象全体の収集を落とさない
+                    stats[index] = null;
+                }
+                finally
+                {
+                    gate.Release();
+                }
+            }));
+        }
+
+        var now = timeProvider.GetUtcNow().UtcDateTime;
+        var samples = new List<ContainerResourceSample>();
+        var payload = new List<object>(measured.Count);
+
+        for (var i = 0; i < measured.Count; i++)
+        {
+            var name = measured[i].Name;
+            var sample = stats[i];
+
+            payload.Add(new
+            {
+                name,
+                cpuUsagePercent = sample?.CpuUsagePercent,
+                memoryUsagePercent = sample?.MemoryUsagePercent,
+                memoryUsageBytes = sample?.MemoryUsageBytes,
+                memoryLimitBytes = sample?.MemoryLimitBytes,
+            });
+
+            if (sample is not null)
+            {
+                samples.Add(new ContainerResourceSample(name, sample));
+            }
+        }
+
+        // 測れたコンテナが1つも無い場合は失敗として残す。
+        // 空の結果を正常な収集として記録すると、取得できていないことが見えなくなる
+        var failed = measured.Count > 0 && samples.Count == 0;
+
+        await snapshots.AddAsync(new MetricSnapshot
+        {
+            TargetId = targetId,
+            CollectedAt = now,
+            Kind = "resource",
+            Status = failed ? CollectionStatus.Failed : CollectionStatus.Ok,
+            PayloadJson = JsonSerializer.Serialize(new
+            {
+                measured = measured.Count,
+                skipped,
+                containers = payload,
+            }, JsonOptions),
+            ErrorMessage = failed ? "リソース使用率を取得できませんでした。" : null,
+        }, ct);
+        await snapshots.SaveChangesAsync(ct);
+
+        if (skipped > 0)
+        {
+            logger.LogInformation(
+                "Resource usage measured for {Measured} of {Total} running containers on target {TargetId}.",
+                measured.Count, running.Count, targetId);
+        }
+
+        foreach (var alert in await resourceThresholdDetector.DetectContainerAsync(samples, ct))
+        {
+            var (incident, shouldDiagnose) = await UpsertIncidentAsync(
+                targetId,
+                classification: alert.Rule.Classification,
+                service: alert.Subject,
+                title: $"コンテナ {alert.Subject}: {alert.Rule.Name}",
+                severity: alert.Rule.Severity,
+                logExcerpt: null,
+                ct);
+
+            if (shouldDiagnose)
+            {
+                // 診断も同じ文脈で行う。復旧はここでは試みない。
+                // 使用率が高いだけでは「何を再起動すれば直るか」が定まらず、
+                // 判断を人へ残すほうが安全である。
+                await diagnosisService.DiagnoseAsync(incident, alert.Context, ct);
+            }
+        }
+    }
+
+    /// <summary>
+    /// ホストのファイルシステム使用率を収集し、しきい値ルールに当たったものをインシデント化する。
+    /// 接続先が未設定なら何もしない。
+    /// </summary>
+    private async Task CollectDiskUsageAsync(long targetId, string? metricsUrl, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(metricsUrl))
+        {
+            // 設定していない対象で毎回失敗を積み上げない。
+            // 「取れていない」ことは監視項目の設定を見れば分かる
+            return;
+        }
+
+        var now = timeProvider.GetUtcNow().UtcDateTime;
+        var filesystems = await hostMetricsAdapter.GetFilesystemUsageAsync(metricsUrl, ct);
+
+        // 1つも読めなかった場合は失敗として残す。
+        // 空の結果を正常な収集として記録すると、取れていないことが見えなくなる
+        var failed = filesystems.Count == 0;
+
+        await snapshots.AddAsync(new MetricSnapshot
+        {
+            TargetId = targetId,
+            CollectedAt = now,
+            Kind = "disk",
+            Status = failed ? CollectionStatus.Failed : CollectionStatus.Ok,
+            PayloadJson = JsonSerializer.Serialize(new
+            {
+                filesystems = filesystems.Select(f => new
+                {
+                    mountpoint = f.Mountpoint,
+                    sizeBytes = f.SizeBytes,
+                    availableBytes = f.AvailableBytes,
+                    usagePercent = f.UsagePercent,
+                }),
+            }, JsonOptions),
+            ErrorMessage = failed ? "ホストのディスク使用率を取得できませんでした。" : null,
+        }, ct);
+        await snapshots.SaveChangesAsync(ct);
+
+        foreach (var alert in await resourceThresholdDetector.DetectFilesystemAsync(filesystems, ct))
+        {
+            var (incident, shouldDiagnose) = await UpsertIncidentAsync(
+                targetId,
+                classification: alert.Rule.Classification,
+                service: alert.Subject,
+                title: $"{alert.Subject}: {alert.Rule.Name}",
+                severity: alert.Rule.Severity,
+                logExcerpt: null,
+                ct);
+
+            if (shouldDiagnose)
+            {
+                // ディスク逼迫に対して自動でできる安全な操作は無い。
+                // コンテナを再起動しても容量は戻らず、消してよいものを決められるのは人だけ。
+                await diagnosisService.DiagnoseAsync(incident, alert.Context, ct);
             }
         }
     }
@@ -237,6 +610,9 @@ public class TargetCollectionService(
                 var diagnosis = await diagnosisService.DiagnoseAsync(incident, new DiagnosticContext
                 {
                     HttpSuccess = false,
+                    // 応答が返らなかった場合はステータスコードが無い。
+                    // 0で埋めると「0番のステータス」を条件にしたルールが当たってしまう
+                    HttpStatus = result.StatusCode,
                     HttpLatencyMs = result.LatencyMs,
                     LogExcerpt = result.Message,
                 }, ct);

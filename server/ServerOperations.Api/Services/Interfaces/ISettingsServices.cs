@@ -11,6 +11,31 @@ public interface ISettingsService
     Task<RetentionSettingsDto> GetRetentionAsync(CancellationToken ct = default);
 
     Task<RetentionSettingsDto> UpdateRetentionAsync(RetentionSettingsDto request, CancellationToken ct = default);
+
+    Task<NotificationSettingsDto> GetNotificationAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// 通知設定を保存する。
+    /// メールを有効にする場合は送信先とSMTPの指定を必須とし、接続先の妥当性も確かめる。
+    /// </summary>
+    Task<NotificationSettingsDto> UpdateNotificationAsync(
+        NotificationSettingsDto request, CancellationToken ct = default);
+
+    Task<BackupSettingsDto> GetBackupAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// バックアップ設定を保存する。
+    /// 有効にする場合は保存先とバケットの指定を必須とし、接続先の妥当性も確かめる。
+    /// </summary>
+    Task<BackupSettingsDto> UpdateBackupAsync(
+        BackupSettingsDto request, CancellationToken ct = default);
+
+    /// <summary>
+    /// 保存済みの設定と宛先へテスト通知を送り、チャネルごとの結果を返す。
+    /// 宛先は指定できない(任意の相手へ送らせないため)。
+    /// </summary>
+    Task<List<DTOs.Operations.NotificationTestResultDto>> SendTestNotificationAsync(
+        CancellationToken ct = default);
 }
 
 public interface ISecretsService

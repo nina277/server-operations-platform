@@ -47,6 +47,8 @@ if (!string.IsNullOrWhiteSpace(connectionString))
     builder.Services.AddSingleton<IAdapterTemplateCatalog, AdapterTemplateCatalog>();
     builder.Services.AddSingleton<IRuleEngine, RuleEngine>();
     builder.Services.AddScoped<IDiagnosisService, DiagnosisService>();
+    builder.Services.AddScoped<IResourceThresholdDetector, ResourceThresholdDetector>();
+    builder.Services.AddScoped<ILogScanDetector, LogScanDetector>();
 
     // AI Gateway(ルール診断と履歴再利用が失敗したときだけ呼ぶ)
     builder.Services.AddScoped<IAiUsageRecordRepository, AiUsageRecordRepository>();
@@ -68,6 +70,8 @@ if (!string.IsNullOrWhiteSpace(connectionString))
     builder.Services.AddScoped<IHealthCheckService, HealthCheckService>();
     builder.Services.AddScoped<IRecoveryExecutionService, RecoveryExecutionService>();
     builder.Services.AddScoped<IAuditLogRepository, AuditLogRepository>();
+    builder.Services.AddScoped<IMaintenanceWindowRepository, MaintenanceWindowRepository>();
+    builder.Services.AddScoped<IMaintenanceService, MaintenanceService>();
     builder.Services.AddScoped<IAutoRecoveryService, AutoRecoveryService>();
 
     // 通知・保持(T-07)
@@ -87,6 +91,7 @@ if (!string.IsNullOrWhiteSpace(connectionString))
     builder.Services.AddScoped<IBackupSourceProvider, DatabaseBackupSourceProvider>();
     builder.Services.AddScoped<IBackupService, BackupService>();
     builder.Services.AddScoped<BackupJob>();
+    builder.Services.AddScoped<CollectionJob>();
 
     // アダプター用HTTPクライアント(接続時にも遮断対象IPを検査する)
     builder.Services.AddHttpClient(DockerAdapter.HttpClientName, client =>
@@ -95,8 +100,12 @@ if (!string.IsNullOrWhiteSpace(connectionString))
     builder.Services.AddHttpClient(HttpAdapter.HttpClientName, client =>
             client.Timeout = TimeSpan.FromSeconds(65))
         .ConfigurePrimaryHttpMessageHandler(AdapterHttpHandlerFactory.CreateGuardedHandler);
+    builder.Services.AddHttpClient(HostMetricsAdapter.HttpClientName, client =>
+            client.Timeout = TimeSpan.FromSeconds(15))
+        .ConfigurePrimaryHttpMessageHandler(AdapterHttpHandlerFactory.CreateGuardedHandler);
     builder.Services.AddScoped<IDockerAdapter, DockerAdapter>();
     builder.Services.AddScoped<IHttpAdapter, HttpAdapter>();
+    builder.Services.AddScoped<IHostMetricsAdapter, HostMetricsAdapter>();
 }
 
 if (hangfireEnabled)
@@ -127,10 +136,15 @@ if (hangfireEnabled)
     // 定期バックアップ(既定: 毎日2時)
     builder.Services.AddHostedService<BackupJobScheduler>();
 }
-else
-{
-    builder.Services.AddHostedService<Worker>();
-}
+
+// 生存を示すファイルの更新。**Hangfireの有無に関わらず動かす。**
+//
+// これを else に入れていたため、実際の配置(Hangfire有効)では一度も動かず、
+// /tmp/worker-alive が作られなかった。
+// worker の healthcheck はこのファイルの古さを見るため、
+// **コンテナは起動直後から永久に unhealthy** になり、
+// 「生きているが応答しない状態を検知する」という仕掛けが働いていなかった。
+builder.Services.AddHostedService<Worker>();
 
 var host = builder.Build();
 host.Run();

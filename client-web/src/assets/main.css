@@ -10,7 +10,9 @@
   --color-surface: #ffffff;
   --color-surface-alt: #f0f2f5;
   --color-border: #d3d7de;
-  --color-border-strong: #a8aeb8;
+  /* 入力欄とボタンの枠に使う。WCAG 2.2 の 1.4.11(非テキストのコントラスト)で
+     操作部品の輪郭には 3:1 が要る。#a8aeb8 では 2.08:1 で足りなかった */
+  --color-border-strong: #848b95;
 
   --color-text: #1c1f24;
   --color-text-muted: #565d68;
@@ -22,7 +24,8 @@
   /* 状態色。色だけに頼らず、文字とアイコンを併記する */
   --color-critical: #a01b2b;
   --color-critical-bg: #fdeaec;
-  --color-high: #b4531a;
+  /* 帯の上に置くと 4.45:1 で AA にわずかに届いていなかった */
+  --color-high: #a94d17;
   --color-high-bg: #fdefe4;
   --color-medium: #8a6100;
   --color-medium-bg: #fdf5e2;
@@ -49,10 +52,14 @@
     --color-surface: #1f2228;
     --color-surface-alt: #272b32;
     --color-border: #3a3f48;
-    --color-border-strong: #5a616c;
+    --color-border-strong: #727a86;
 
     --color-text: #e8eaed;
     --color-text-muted: #a9b0ba;
+
+    /* 暗い配色では accent が明るい青になるため、その上に白を置くと 2.34:1 しかない。
+       主ボタン(.button--primary)の文字がこれに当たる。暗い文字へ反転させる */
+    --color-text-inverse: #16181c;
 
     --color-accent: #78aee4;
     --color-accent-hover: #9cc4ec;
@@ -183,7 +190,33 @@ textarea {
   background-color: var(--color-accent-hover);
 }
 
+/* 破壊的な操作のボタン。**押す前に色で気づけるようにする。**
+   文字は白のままでは暗い配色で読めないため、深刻度の色ではなく
+   十分な明度差のある背景を使う */
+.button--danger {
+  border-color: var(--color-critical);
+  background-color: var(--color-critical-bg);
+  color: var(--color-critical);
+  font-weight: 600;
+}
+
+.button--danger:hover:not(:disabled) {
+  border-color: var(--color-critical);
+  background-color: var(--color-surface);
+}
+
 .button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* 復元で「戻さないもの」の説明。読み飛ばされると困るため本文の大きさで出す */
+.notes {
+  margin: var(--spacing-md) 0 0;
+  padding-left: 1.2em;
+  color: var(--color-text-muted);
+}
+
+.notes li + li {
+  margin-top: var(--spacing-xs);
 }

@@ -49,6 +49,55 @@ public class RuleConditionValidatorTests
         Assert.Contains("logExcerpt", RuleConditionValidator.AllowedFields);
     }
 
+    [Fact]
+    public void 参照できる項目には収集の裏付けがある()
+    {
+        // 収集しない項目を並べると、当たらないルールを作れてしまう。
+        // 画面にはルールが並ぶため監視できているように見え、実際には何も検知しない
+        // という最も悪い形になる。項目を足すときは、それを埋める収集も必ず足す。
+        var filledBy = new Dictionary<string, string>
+        {
+            ["containerState"] = "コンテナの状態",
+            ["containerName"] = "コンテナの状態",
+            ["restartCount"] = "コンテナの状態",
+            ["cpuUsagePercent"] = "CPU・メモリ使用率",
+            ["memoryUsagePercent"] = "CPU・メモリ使用率",
+            ["diskUsagePercent"] = "ホストのディスク使用率",
+            ["httpSuccess"] = "HTTPの死活と応答時間",
+            ["httpStatus"] = "HTTPの死活と応答時間",
+            ["httpLatencyMs"] = "HTTPの死活と応答時間",
+            ["logExcerpt"] = "停止コンテナのログ抜粋",
+        };
+
+        Assert.All(
+            RuleConditionValidator.AllowedFields,
+            field => Assert.True(
+                filledBy.ContainsKey(field), $"{field} を埋める収集がありません。"));
+    }
+
+    [Fact]
+    public void 参照できる項目はすべて評価できる()
+    {
+        // 一覧にあるのに評価側が知らない項目があると、常に一致しないルールになる
+        var context = new DiagnosticContext
+        {
+            ContainerState = "exited",
+            ContainerName = "web",
+            RestartCount = 1,
+            CpuUsagePercent = 1,
+            MemoryUsagePercent = 1,
+            DiskUsagePercent = 1,
+            HttpSuccess = false,
+            HttpStatus = 503,
+            HttpLatencyMs = 1,
+            LogExcerpt = "x",
+        };
+
+        Assert.All(
+            RuleConditionValidator.AllowedFields,
+            field => Assert.NotNull(context.GetField(field)));
+    }
+
     // --- State ---
 
     [Fact]

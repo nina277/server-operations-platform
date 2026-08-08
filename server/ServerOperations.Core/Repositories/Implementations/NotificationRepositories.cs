@@ -18,12 +18,20 @@ public class NotificationRepository(AppDbContext db) : INotificationRepository
         db.Notifications.Include(n => n.Deliveries).FirstOrDefaultAsync(n => n.Id == id, ct);
 
     public async Task<(List<Notification> Items, long TotalCount)> SearchAsync(
-        bool? isRead, int page, int pageSize, CancellationToken ct = default)
+        bool? isRead, NotificationSeverity? minimumSeverity, int page, int pageSize,
+        CancellationToken ct = default)
     {
         var query = db.Notifications.AsQueryable();
         if (isRead is { } read)
         {
             query = query.Where(n => n.IsRead == read);
+        }
+
+        // 「この重大度以上」で絞る。特定の重大度だけを見たい場面は少なく、
+        // 通知の設定側も下限で指定するため、そちらと考え方を揃える。
+        if (minimumSeverity is { } severity)
+        {
+            query = query.Where(n => n.Severity >= severity);
         }
 
         var total = await query.LongCountAsync(ct);

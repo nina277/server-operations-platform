@@ -23,10 +23,25 @@ public class NotificationsController(
 {
     [HttpGet]
     public async Task<ActionResult<ApiResponse<PagedResult<NotificationDto>>>> Search(
-        [FromQuery] bool? isRead, [FromQuery] int page = 1, [FromQuery] int pageSize = 20,
+        [FromQuery] bool? isRead,
+        [FromQuery] string? minimumSeverity,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
         CancellationToken ct = default)
     {
-        var (items, total) = await notifications.SearchAsync(isRead, page, pageSize, ct);
+        ServerOperations.Core.Models.Operations.NotificationSeverity? severity = null;
+        if (!string.IsNullOrWhiteSpace(minimumSeverity))
+        {
+            if (!Enum.TryParse<ServerOperations.Core.Models.Operations.NotificationSeverity>(
+                minimumSeverity, ignoreCase: true, out var parsed))
+            {
+                throw AppException.BadRequest("invalid_severity", "重大度の指定が不正です。");
+            }
+
+            severity = parsed;
+        }
+
+        var (items, total) = await notifications.SearchAsync(isRead, severity, page, pageSize, ct);
         var result = new PagedResult<NotificationDto>(
             items.Select(NotificationDto.From).ToList(),
             Math.Max(page, 1), Math.Clamp(pageSize, 1, 100), total);

@@ -16,7 +16,7 @@ import type {
 } from '@/types/operations'
 
 const options: RuleEditorOptions = {
-  fields: ['containerState', 'memoryUsagePercent', 'diskUsagePercent', 'logExcerpt'],
+  fields: ['containerState', 'memoryUsagePercent', 'cpuUsagePercent', 'logExcerpt'],
   operators: ['>=', '>', '<=', '<', '==', '!='],
   ruleTypes: ['State', 'Threshold', 'Regex'],
   severities: ['Critical', 'High', 'Medium', 'Low'],
@@ -178,7 +178,7 @@ describe('RuleEditView', () => {
     await wrapper.get('#rule-name').setValue('ディスク逼迫')
     await wrapper.get('#rule-classification').setValue('DiskPressure')
     await wrapper.get('#rule-type').setValue('Threshold')
-    await wrapper.get('#condition-field').setValue('diskUsagePercent')
+    await wrapper.get('#condition-field').setValue('cpuUsagePercent')
     await wrapper.get('#condition-operator').setValue('>=')
     await wrapper.get('#condition-value').setValue('90')
     await wrapper.get('#rule-severity').setValue('Medium')
@@ -190,7 +190,7 @@ describe('RuleEditView', () => {
     expect(request.name).toBe('ディスク逼迫')
     expect(request.classification).toBe('DiskPressure')
     expect(request.ruleType).toBe('Threshold')
-    expect(request.conditionJson).toBe('{"field":"diskUsagePercent","operator":">=","value":90}')
+    expect(request.conditionJson).toBe('{"field":"cpuUsagePercent","operator":">=","value":90}')
     expect(request.severity).toBe('Medium')
     expect(request.priority).toBe(20)
   })
@@ -293,24 +293,24 @@ describe('RuleEditView', () => {
     await wrapper.get('#rule-name').setValue('ディスク逼迫')
     await wrapper.get('#rule-classification').setValue('DiskPressure')
     await wrapper.get('#rule-type').setValue('Threshold')
-    await wrapper.get('#condition-field').setValue('diskUsagePercent')
+    await wrapper.get('#condition-field').setValue('cpuUsagePercent')
     await wrapper.get('#condition-operator').setValue('>=')
     await wrapper.get('#condition-value').setValue('80')
-    await wrapper.get('#test-disk').setValue('85')
+    await wrapper.get('#test-cpu').setValue('85')
 
     const run = wrapper.findAll('button').find((b) => b.text() === '判定する')
     await run?.trigger('click')
     await flushPromises()
 
     const request = nthCall(testDiagnosticRules.mock.calls, 0)[0]
-    expect(request.diskUsagePercent).toBe(85)
+    expect(request.cpuUsagePercent).toBe(85)
     expect(request.candidateRule).toEqual({
       // 新規なので0
       id: 0,
       name: 'ディスク逼迫',
       classification: 'DiskPressure',
       ruleType: 'Threshold',
-      conditionJson: '{"field":"diskUsagePercent","operator":">=","value":80}',
+      conditionJson: '{"field":"cpuUsagePercent","operator":">=","value":80}',
       severity: 'Medium',
       recommendedActionId: null,
       priority: 100,
@@ -337,7 +337,7 @@ describe('RuleEditView', () => {
           classification: 'DiskPressure',
           severity: 'Medium',
           recommendedActionId: null,
-          rationale: 'diskUsagePercent が 85 です。',
+          rationale: 'cpuUsagePercent が 85 です。',
           isCandidate: true,
         },
         {
@@ -346,7 +346,7 @@ describe('RuleEditView', () => {
           classification: 'DiskPressure',
           severity: 'High',
           recommendedActionId: null,
-          rationale: 'diskUsagePercent が 85 です。',
+          rationale: 'cpuUsagePercent が 85 です。',
           isCandidate: false,
         },
       ],

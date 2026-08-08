@@ -109,6 +109,35 @@ public class DockerAdapter(IHttpClientFactory httpClientFactory, ILogger<DockerA
         return result;
     }
 
+    public async Task<ContainerStats?> GetContainerStatsAsync(
+        string endpoint, string containerId, CancellationToken ct = default)
+    {
+        var client = httpClientFactory.CreateClient(HttpClientName);
+        var baseUri = new Uri(endpoint.TrimEnd('/') + "/");
+
+        // one-shot=true は使わない。1周期しか取らないためprecpu_statsが0のまま返り、
+        // CPU使用率を0との差分で計算することになる。
+        // その値は「起動してからの平均」に近く、現在の使用率としては誤りである。
+        // もっともらしい誤った数値はしきい値判定を狂わせるため、1秒待って正しい差分を取る。
+        var path = $"containers/{Uri.EscapeDataString(containerId)}/stats?stream=false";
+
+        try
+        {
+            using var response = await client.GetAsync(new Uri(baseUri, path), ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            return ParseStats(await response.Content.ReadAsStringAsync(ct));
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            logger.LogWarning(ex, "Docker stats retrieval failed.");
+            return null;
+        }
+    }
+
     public async Task<string> GetContainerLogsAsync(
         string endpoint, string containerId, int tailLines = 50, CancellationToken ct = default)
     {
@@ -188,6 +217,162 @@ public class DockerAdapter(IHttpClientFactory httpClientFactory, ILogger<DockerA
         {
             return 0;
         }
+    }
+
+    /// <summary>
+    /// Docker statsの応答からCPU・メモリ使用率を取り出す。
+    /// 算出に必要な値が揃わない項目はnullを返す(0で埋めない)。
+    /// </summary>
+    internal static ContainerStats? ParseStats(string json)
+    {
+        JsonDocument doc;
+        try
+        {
+            doc = JsonDocument.Parse(json);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
+        using (doc)
+        {
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                return null;
+            }
+
+            var cpuPercent = ComputeCpuPercent(root);
+            var (memoryPercent, memoryUsed, memoryLimit) = ComputeMemory(root);
+
+            if (cpuPercent is null && memoryPercent is null && memoryUsed is null)
+            {
+                // 停止直後のコンテナなどでは空の統計が返る。何も取れないなら未取得として扱う
+                return null;
+            }
+
+            return new ContainerStats(cpuPercent, memoryPercent, memoryUsed, memoryLimit);
+        }
+    }
+
+    /// <summary>
+    /// CPU使用率 = (今回と前回のCPU時間の差 / 同じ区間のシステム全体のCPU時間の差) × コア数 × 100。
+    /// Dockerは累積値しか返さないため、差分が取れなければ算出しない。
+    /// </summary>
+    private static double? ComputeCpuPercent(JsonElement root)
+    {
+        if (!root.TryGetProperty("cpu_stats", out var cpu) ||
+            !root.TryGetProperty("precpu_stats", out var precpu))
+        {
+            return null;
+        }
+
+        var total = ReadInt64(cpu, "cpu_usage", "total_usage");
+        var preTotal = ReadInt64(precpu, "cpu_usage", "total_usage");
+        var system = ReadInt64(cpu, "system_cpu_usage");
+        var preSystem = ReadInt64(precpu, "system_cpu_usage");
+
+        if (total is null || preTotal is null || system is null || preSystem is null)
+        {
+            return null;
+        }
+
+        // 前回のシステムCPU時間は起動からの累積であり、実際に前周期を測っていれば必ず正になる。
+        // 0のまま返るのは前周期が無い場合(one-shot取得)であり、
+        // このとき差分は「コンテナが起動してから今まで」を指す。
+        // 計算自体は成立してしまうが、現在の使用率としては誤りなので算出しない。
+        if (preSystem.Value <= 0)
+        {
+            return null;
+        }
+
+        var cpuDelta = total.Value - preTotal.Value;
+        var systemDelta = system.Value - preSystem.Value;
+
+        // 差分が負や0になるのは、前回値が無い(one-shot)かカウンタが巻き戻った場合。
+        // どちらも意味のある使用率にならないため算出しない
+        if (cpuDelta < 0 || systemDelta <= 0)
+        {
+            return null;
+        }
+
+        var onlineCpus = ReadInt64(cpu, "online_cpus")
+            ?? (cpu.TryGetProperty("cpu_usage", out var usage) &&
+                usage.TryGetProperty("percpu_usage", out var perCpu) &&
+                perCpu.ValueKind == JsonValueKind.Array
+                    ? perCpu.GetArrayLength()
+                    : 0);
+        if (onlineCpus <= 0)
+        {
+            return null;
+        }
+
+        // 全コアを使い切っても100%になるよう、コア数を掛けたうえで正規化する
+        return Math.Round((double)cpuDelta / systemDelta * onlineCpus * 100.0, 2);
+    }
+
+    /// <summary>
+    /// メモリ使用率を求める。ページキャッシュ(inactive_file)は使用量から差し引く。
+    /// 差し引かないと、ファイルを読み書きしただけのコンテナが常に上限近くに見え、
+    /// しきい値ルールが誤って発火する。
+    /// </summary>
+    private static (double? Percent, long? Used, long? Limit) ComputeMemory(JsonElement root)
+    {
+        if (!root.TryGetProperty("memory_stats", out var memory))
+        {
+            return (null, null, null);
+        }
+
+        var usage = ReadInt64(memory, "usage");
+        if (usage is null)
+        {
+            return (null, null, null);
+        }
+
+        long cache = 0;
+        if (memory.TryGetProperty("stats", out var stats) && stats.ValueKind == JsonValueKind.Object)
+        {
+            // cgroup v2 は inactive_file、v1 は total_inactive_file を使う
+            cache = ReadInt64(stats, "inactive_file")
+                ?? ReadInt64(stats, "total_inactive_file")
+                ?? ReadInt64(stats, "cache")
+                ?? 0;
+        }
+
+        var used = Math.Max(0, usage.Value - cache);
+        var limit = ReadInt64(memory, "limit");
+
+        // 上限が無い(または0)場合は割合を出せない。使用量だけを返す
+        if (limit is null || limit.Value <= 0)
+        {
+            return (null, used, null);
+        }
+
+        return (Math.Round((double)used / limit.Value * 100.0, 2), used, limit.Value);
+    }
+
+    private static long? ReadInt64(JsonElement parent, string property)
+    {
+        if (parent.ValueKind != JsonValueKind.Object ||
+            !parent.TryGetProperty(property, out var value) ||
+            value.ValueKind != JsonValueKind.Number)
+        {
+            return null;
+        }
+
+        return value.TryGetInt64(out var parsed) ? parsed : null;
+    }
+
+    private static long? ReadInt64(JsonElement parent, string property, string nestedProperty)
+    {
+        if (parent.ValueKind != JsonValueKind.Object ||
+            !parent.TryGetProperty(property, out var nested))
+        {
+            return null;
+        }
+
+        return ReadInt64(nested, nestedProperty);
     }
 
     /// <summary>
