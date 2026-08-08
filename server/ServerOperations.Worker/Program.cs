@@ -136,10 +136,15 @@ if (hangfireEnabled)
     // 定期バックアップ(既定: 毎日2時)
     builder.Services.AddHostedService<BackupJobScheduler>();
 }
-else
-{
-    builder.Services.AddHostedService<Worker>();
-}
+
+// 生存を示すファイルの更新。**Hangfireの有無に関わらず動かす。**
+//
+// これを else に入れていたため、実際の配置(Hangfire有効)では一度も動かず、
+// /tmp/worker-alive が作られなかった。
+// worker の healthcheck はこのファイルの古さを見るため、
+// **コンテナは起動直後から永久に unhealthy** になり、
+// 「生きているが応答しない状態を検知する」という仕掛けが働いていなかった。
+builder.Services.AddHostedService<Worker>();
 
 var host = builder.Build();
 host.Run();

@@ -25,7 +25,12 @@ services:
     logging: *default-logging
     mem_limit: 128m
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost/api/health/live"]
+      # localhost ではなく 127.0.0.1 を使う。
+      # このconfはイメージ同梱版と異なるため、nginx画像の
+      # 10-listen-on-ipv6-by-default.sh が listen [::]:80 を足さない。
+      # busyboxのwgetは localhost を ::1 に解決して接続拒否になり、
+      # (curlと違い)IPv4へ落ちないため、**常に unhealthy になる。**
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/api/health/live"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -48,7 +53,8 @@ services:
     logging: *default-logging
     mem_limit: 128m
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost/"]
+      # nginx と同じ理由で 127.0.0.1 を使う(localhost は ::1 になり接続拒否)
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/"]
       interval: 30s
       timeout: 5s
       retries: 3
