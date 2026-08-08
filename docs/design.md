@@ -428,6 +428,7 @@ nginxは起動時に一度だけ名前解決して固定していた。
 
 | 文書 | 内容 |
 |---|---|
+| [features.md](features.md) | 実装済み機能の一覧と、意図的に実装しなかったもの |
 | [verification.md](verification.md) | 検証手順と成功基準の測り方、実測結果 |
 | [release.md](release.md) | 配置・更新・切り戻しの手順 |
 | [backlog.md](backlog.md) | 個別の設計判断の記録(B-01〜B-14) |
