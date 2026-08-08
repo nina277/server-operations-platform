@@ -50,6 +50,7 @@ PLATFORM="docker compose $(compose_files "${DEPLOY_DIR}")"
 LAB="docker compose $(compose_files "${LAB_DIR}")"
 SCENARIOS="${SCRIPT_DIR}/lab-scenarios.sh"
 TOTP="${SCRIPT_DIR}/lib/totp.py"
+COMPARE="${SCRIPT_DIR}/lib/compare_usage.py"
 
 HTTP_PORT="${HTTP_PORT:-8080}"
 COLLECT_SECONDS="${COLLECT_SECONDS:-60}"
@@ -545,6 +546,18 @@ sys.exit(0 if any(i.get("classification") == sys.argv[1] for i in (items or []))
 ' "$1"
 }
 
+# latest_resource_payload <対象ID> — 収集値のうち kind=resource の最新のペイロード
+latest_resource_payload() {
+  api GET "/api/v1/targets/$1/metrics?limit=100" | python3 -c '
+import json, sys
+data = json.load(sys.stdin).get("data") or []
+for item in data:
+    if item.get("kind") == "resource" and item.get("payloadJson"):
+        print(item["payloadJson"])
+        break
+'
+}
+
 # incident_exists_for_service <対象サービス名>
 # 分類ではなく当事者で探す。ST-AIの取り込み確認に使う
 incident_exists_for_service() {
@@ -606,14 +619,38 @@ cmd_run() {
   "${SCENARIOS}" sc05
 
   info "SC-06: ディスク使用率を df と突き合わせます"
-  "${SCENARIOS}" sc06 | tee "${WORK_DIR}/sc06-disk.txt"
-  warn "USE% が一致しているかは目で確かめてください(.verify/sc06-disk.txt に残しました)"
-  record "シナリオ" "SC-06 ディスク使用率の突き合わせ" "要目視"
+  "${SCENARIOS}" sc06 >"${WORK_DIR}/sc06-disk.txt" 2>&1 || true
+  "${SCENARIOS}" sc06-df >"${WORK_DIR}/sc06-df.txt" 2>/dev/null || true
+  "${SCENARIOS}" sc06-metrics >"${WORK_DIR}/sc06-metrics.txt" 2>/dev/null || true
+  if python3 "${COMPARE}" disk       --df "${WORK_DIR}/sc06-df.txt" --metrics "${WORK_DIR}/sc06-metrics.txt"; then
+    pass "SC-06: ディスク使用率が df と一致しました"
+    record "シナリオ" "SC-06 ディスク使用率の突き合わせ" "OK"
+  else
+    fail "SC-06: ディスク使用率が df と一致しません"
+    record "シナリオ" "SC-06 ディスク使用率の突き合わせ" "NG"
+  fi
 
   info "SC-07: lab-load の使用率を上げます"
-  "${SCENARIOS}" sc07 | tee "${WORK_DIR}/sc07-resource.txt"
-  warn "CPU% / MEM% が一致しているかは目で確かめてください(.verify/sc07-resource.txt に残しました)"
-  record "シナリオ" "SC-07 使用率の突き合わせ" "要目視"
+  "${SCENARIOS}" sc07 >"${WORK_DIR}/sc07-resource.txt" 2>&1 || true
+
+  # 負荷をかけてから収集が1周するのを待つ。
+  # 待たずに比べると、負荷をかける前の収集値と比べることになる
+  info "次の収集を待ちます"
+  sleep $((COLLECT_SECONDS + 20))
+  login >/dev/null 2>&1 || true
+
+  local load_container
+  load_container="$(lab_container_name lab-load || true)"
+  "${SCENARIOS}" sc07-stats >"${WORK_DIR}/sc07-stats.txt" 2>/dev/null || true
+  latest_resource_payload "$(cat "${WORK_DIR}/target-docker")"     >"${WORK_DIR}/sc07-collected.json" 2>/dev/null || true
+
+  if python3 "${COMPARE}" resource       --stats "${WORK_DIR}/sc07-stats.txt"       --collected "${WORK_DIR}/sc07-collected.json"       ${load_container:+--loaded "${load_container}"}; then
+    pass "SC-07: 使用率が docker stats と一致しました"
+    record "シナリオ" "SC-07 使用率の突き合わせ" "OK"
+  else
+    fail "SC-07: 使用率が docker stats と一致しません"
+    record "シナリオ" "SC-07 使用率の突き合わせ" "NG"
+  fi
   "${SCENARIOS}" sc07-restore
 
   info "ST-AI: 注入文を含むログを出します"

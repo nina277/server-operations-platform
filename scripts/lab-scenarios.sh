@@ -174,6 +174,24 @@ case "${1:-}" in
     echo "**MEM % が大きくずれる場合は、ページキャッシュの差し引きを疑います。**"
     ;;
 
+  sc06-df)
+    require_lab_environment
+    # 判定に使う生データだけを出す(装飾を混ぜない)
+    df -P -x tmpfs -x devtmpfs -x overlay -x squashfs
+    ;;
+
+  sc06-metrics)
+    require_lab_environment
+    ${COMPOSE} exec -T lab-load sh -c 'wget -qO- http://node-exporter:9100/metrics'       | awk -f "${COMPOSE_DIR}/filesystem-usage.awk"
+    ;;
+
+  sc07-stats)
+    require_lab_environment
+    # 判定に使うため書式を固定する。既定の表は列位置が環境で変わり、
+    # コンテナIDと名前の区別も推測になる
+    docker stats --no-stream --format '{{.Name}}	{{.CPUPerc}}	{{.MemPerc}}'       "$(${COMPOSE} ps -q lab-load)"
+    ;;
+
   sc07-restore)
     require_lab_environment
     ${COMPOSE} exec -T lab-load sh -c 'rm -f /load/fill; echo "メモリを解放しました。"'
