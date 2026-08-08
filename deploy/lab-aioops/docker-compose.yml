@@ -88,6 +88,46 @@ services:
     networks:
       - lab
 
+  # 展開専用のSocket Proxy。**監視用とは別に立てる。**
+  #
+  # 展開にはイメージ・ボリューム・ネットワーク・コンテナ作成の権限が要り、
+  # これはホストのrootと同義になる。1本にまとめると収集や自動復旧まで
+  # その広い権限で動くことになるため、経路そのものを分ける。
+  #
+  # 第1層(無人で動く収集・自動復旧)はこちらを使わない。
+  # 仮にコード側の判定を誤っても、socket-proxy 側には展開の権限が無い。
+  deploy-proxy:
+    image: tecnativa/docker-socket-proxy:0.3.0
+    restart: unless-stopped
+    environment:
+      CONTAINERS: 1
+      INFO: 1
+      VERSION: 1
+      POST: 1
+      START: 1
+      STOP: 1
+      RESTART: 1
+      # 展開に要る権限(監視用では拒否しているもの)
+      IMAGES: 1
+      VOLUMES: 1
+      NETWORKS: 1
+      # ここは展開でも要らない。任意コマンド実行とイメージ作成の経路になる
+      EXEC: 0
+      BUILD: 0
+      COMMIT: 0
+      # Swarm系は使わない
+      CONFIGS: 0
+      SECRETS: 0
+      SERVICES: 0
+      SWARM: 0
+      SYSTEM: 0
+      NODES: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - lab
+    # 外部へは公開しない(監視システムからのみ到達する)
+
   # SC-06(ホストのディスク使用率): 監視システムが読む node_exporter。
   #
   # Docker APIはホストのファイルシステム容量を返さないため、

@@ -68,11 +68,43 @@ if [ -f "${lab_compose}" ]; then
     /docker\.sock/ { print service }
   ' "${lab_compose}" | sort -u)
 
-  unexpected=$(echo "${holder}" | grep -v '^socket-proxy$' | grep -v '^$' || true)
+  # docker.sock を持ってよいのはプロキシ2本だけ。
+  # socket-proxy(監視用・狭い) と deploy-proxy(展開用・広い)。
+  unexpected=$(echo "${holder}" | grep -vE '^(socket-proxy|deploy-proxy)$' | grep -v '^$' || true)
   if [ -n "${unexpected}" ]; then
-    fail "検証環境で socket-proxy 以外が docker.sock を持っています: ${unexpected}"
+    fail "検証環境でプロキシ以外が docker.sock を持っています: ${unexpected}"
   else
-    ok "検証環境で docker.sock を持つのは socket-proxy だけです。"
+    ok "検証環境で docker.sock を持つのはプロキシ2本だけです。"
+  fi
+
+  # **名前を許すだけでは足りない。**権限そのものを確かめる。
+  # 二層の境界は「無人で動く経路に展開の権限が無い」ことで守っている。
+  # socket-proxy 側が広がると、コード側の判定を誤ったときに何も止まらない。
+  monitor_perms=$(awk '
+    /^  socket-proxy:/ { inblock = 1; next }
+    /^  [a-zA-Z0-9_-]+:/ { inblock = 0 }
+    inblock && /^[[:space:]]*(IMAGES|VOLUMES|NETWORKS|BUILD|EXEC):[[:space:]]*1/ { print }
+  ' "${lab_compose}")
+
+  if [ -n "${monitor_perms}" ]; then
+    fail "監視用の socket-proxy に展開の権限が付いています(二層の境界が壊れます):"
+    echo "${monitor_perms}" >&2
+  else
+    ok "監視用の socket-proxy は展開の権限を持っていません。"
+  fi
+
+  # 展開用でも任意コマンド実行とイメージ作成は要らない
+  deploy_perms=$(awk '
+    /^  deploy-proxy:/ { inblock = 1; next }
+    /^  [a-zA-Z0-9_-]+:/ { inblock = 0 }
+    inblock && /^[[:space:]]*(EXEC|BUILD|COMMIT):[[:space:]]*1/ { print }
+  ' "${lab_compose}")
+
+  if [ -n "${deploy_perms}" ]; then
+    fail "展開用の deploy-proxy に exec / build の権限が付いています:"
+    echo "${deploy_perms}" >&2
+  else
+    ok "展開用の deploy-proxy にも exec / build の権限はありません。"
   fi
 fi
 

@@ -155,6 +155,13 @@ public static class ServiceCollectionExtensions
 
         // アダプター用HTTPクライアント。リダイレクトは追跡せず、接続時にも遮断対象IPを検査する
         // (登録時の検証後にDNSの解決先が差し替えられるDNS rebindingへの対策)
+                // 展開用。イメージの取得は時間がかかるため待ち時間を長く取る。
+        // 監視用とは別の名前にして、接続先(権限の違う経路)を混同しないようにする
+        services.AddHttpClient(DockerDeploymentAdapter.HttpClientName, client =>
+            {
+                client.Timeout = TimeSpan.FromMinutes(10);
+            })
+            .ConfigurePrimaryHttpMessageHandler(CreateGuardedHandler);
         services.AddHttpClient(DockerAdapter.HttpClientName, client =>
             {
                 client.Timeout = TimeSpan.FromSeconds(10);
@@ -172,6 +179,8 @@ public static class ServiceCollectionExtensions
             })
             .ConfigurePrimaryHttpMessageHandler(CreateGuardedHandler);
         services.AddScoped<IDockerAdapter, DockerAdapter>();
+        // 展開は別のHttpClientを使う。**監視用とは接続先の権限が違う**
+        services.AddScoped<IDeploymentAdapter, DockerDeploymentAdapter>();
         services.AddScoped<IHttpAdapter, HttpAdapter>();
         services.AddScoped<IHostMetricsAdapter, HostMetricsAdapter>();
 

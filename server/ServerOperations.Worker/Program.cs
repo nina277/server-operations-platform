@@ -94,6 +94,13 @@ if (!string.IsNullOrWhiteSpace(connectionString))
     builder.Services.AddScoped<CollectionJob>();
 
     // アダプター用HTTPクライアント(接続時にも遮断対象IPを検査する)
+        // 展開用。イメージの取得は時間がかかるため待ち時間を長く取る。
+    // 監視用とは別の名前にして、接続先(権限の違う経路)を混同しないようにする
+    builder.Services.AddHttpClient(DockerDeploymentAdapter.HttpClientName, client =>
+        {
+            client.Timeout = TimeSpan.FromMinutes(10);
+        })
+        .ConfigurePrimaryHttpMessageHandler(AdapterHttpHandlerFactory.CreateGuardedHandler);
     builder.Services.AddHttpClient(DockerAdapter.HttpClientName, client =>
             client.Timeout = TimeSpan.FromSeconds(15))
         .ConfigurePrimaryHttpMessageHandler(AdapterHttpHandlerFactory.CreateGuardedHandler);
@@ -104,6 +111,8 @@ if (!string.IsNullOrWhiteSpace(connectionString))
             client.Timeout = TimeSpan.FromSeconds(15))
         .ConfigurePrimaryHttpMessageHandler(AdapterHttpHandlerFactory.CreateGuardedHandler);
     builder.Services.AddScoped<IDockerAdapter, DockerAdapter>();
+    // 展開は別のHttpClientを使う。**監視用とは接続先の権限が違う**
+    builder.Services.AddScoped<IDeploymentAdapter, DockerDeploymentAdapter>();
     builder.Services.AddScoped<IHttpAdapter, HttpAdapter>();
     builder.Services.AddScoped<IHostMetricsAdapter, HostMetricsAdapter>();
 }

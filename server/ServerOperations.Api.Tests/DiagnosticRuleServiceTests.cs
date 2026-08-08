@@ -209,12 +209,37 @@ public class DiagnosticRuleServiceTests
     }
 
     [Fact]
-    public void 推奨アクションの候補は復旧の許可リストと一致する()
+    public void 推奨アクションの候補は無人実行できるものに限る()
     {
+        // ルールの推奨アクションは**無人実行の入口**になる。
+        // ここに第2層(人が起動する運用操作)が並ぶと、
+        // ルールに一致しただけで展開や削除が走ることになる
         var options = CreateSut().GetEditorOptions();
-        var catalog = new RecoveryActionCatalog().GetAll().Select(d => d.ActionId).ToList();
+        var catalog = new RecoveryActionCatalog();
 
-        Assert.Equal(catalog, options.RecommendedActionIds);
+        Assert.Equal(
+            catalog.GetAutomatic().Select(d => d.ActionId).ToList(),
+            options.RecommendedActionIds);
+
+        // 第2層が1つも混ざっていないこと
+        Assert.All(options.RecommendedActionIds, id => Assert.True(catalog.IsAutomatic(id)));
+    }
+
+    [Theory]
+    [InlineData("PULL_IMAGE")]
+    [InlineData("DEPLOY_SERVICE")]
+    [InlineData("REMOVE_CONTAINER")]
+    public async Task 第2層のアクションはルールの推奨に指定できない(string actionId)
+    {
+        // カタログには存在するが、人が起動する運用操作である。
+        // ルールから指定できると、一致しただけで展開や削除が無人で走る
+        Assert.NotNull(new RecoveryActionCatalog().Find(actionId));
+
+        var ex = await Assert.ThrowsAsync<AppException>(() => CreateSut().CreateAsync(
+            Request(recommendedActionId: actionId)));
+
+        Assert.Equal("invalid_recommended_action", ex.Code);
+        Assert.Empty(_rules.Rules);
     }
 
     [Fact]

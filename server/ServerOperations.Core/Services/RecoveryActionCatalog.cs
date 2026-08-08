@@ -63,6 +63,12 @@ public class RecoveryActionCatalog : IRecoveryActionCatalog
     public const string StartAllowedContainer = "START_ALLOWED_CONTAINER";
     public const string StopAllowedContainer = "STOP_ALLOWED_CONTAINER";
 
+    // --- 第2層: 人が明示的に起動する運用操作 ---
+    // **ここに足しても無人実行の範囲は広がらない**(ActionTierBoundaryTests で固定)
+    public const string PullImage = "PULL_IMAGE";
+    public const string DeployService = "DEPLOY_SERVICE";
+    public const string RemoveContainer = "REMOVE_CONTAINER";
+
     private static readonly RecoveryActionDefinition[] Definitions =
     [
         new(
@@ -97,6 +103,35 @@ public class RecoveryActionCatalog : IRecoveryActionCatalog
             RequiresIdempotencyKey: true,
             RequiresTargetResource: true,
             "管理者承認・MFA再認証・Idempotency-Keyが必須。"),
+
+        // --- 第2層 ---
+        new(
+            PullImage,
+            "イメージの取得",
+            ActionRiskLevel.Low,
+            RequiresApproval: false,
+            RequiresIdempotencyKey: false,
+            RequiresTargetResource: true,
+            "展開先へイメージを取得する。既存のコンテナには影響しない。",
+            Tier: ActionTier.Operator),
+        new(
+            DeployService,
+            "サービスの展開",
+            ActionRiskLevel.Medium,
+            RequiresApproval: true,
+            RequiresIdempotencyKey: true,
+            RequiresTargetResource: true,
+            "テンプレートからコンテナを作成して起動する。管理者承認・MFA再認証が必須。",
+            Tier: ActionTier.Operator),
+        new(
+            RemoveContainer,
+            "コンテナの削除",
+            ActionRiskLevel.High,
+            RequiresApproval: true,
+            RequiresIdempotencyKey: true,
+            RequiresTargetResource: true,
+            "停止済みのコンテナを削除する。稼働中は削除しない。管理者承認・MFA再認証が必須。",
+            Tier: ActionTier.Operator),
     ];
 
     public IReadOnlyList<RecoveryActionDefinition> GetAll() => Definitions;

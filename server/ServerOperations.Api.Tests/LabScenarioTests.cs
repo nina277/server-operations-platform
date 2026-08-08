@@ -353,11 +353,26 @@ public class LabScenarioTests
     // --- シナリオ共通の前提 ---
 
     [Fact]
-    public void 危険度の高い操作は許可リストに存在しない()
+    public void 危険度の高い操作は無人実行の対象に存在しない()
     {
+        // v1.0では「カタログに High が存在しない」ことで安全性を説明していた。
+        // 運用操作(第2層)を足したため、条件を
+        // **「無人で動く第1層に High が存在しない」**へ言い換えて固定する。
+        //
+        // 第2層に High があっても、人が起動しない限り動かない。
+        // 到達不能であることは ActionTierBoundaryTests が保証する。
         var catalog = new RecoveryActionCatalog();
 
-        Assert.DoesNotContain(catalog.GetAll(), d => d.RiskLevel == ActionRiskLevel.High);
+        Assert.DoesNotContain(catalog.GetAutomatic(), d => d.RiskLevel == ActionRiskLevel.High);
+
+        // 第2層のHighは、承認と冪等キーを必ず要求すること
+        foreach (var action in catalog.GetAll()
+            .Where(d => d.RiskLevel == ActionRiskLevel.High))
+        {
+            Assert.Equal(ActionTier.Operator, action.Tier);
+            Assert.True(action.RequiresApproval, $"{action.ActionId} が承認不要になっています。");
+            Assert.True(action.RequiresIdempotencyKey, $"{action.ActionId} が冪等キー不要です。");
+        }
     }
 
     [Fact]
