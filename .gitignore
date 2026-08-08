@@ -28,3 +28,7 @@ coverage/
 
 # 実環境試験の作業ディレクトリ(認証情報が入るためコミットしない)
 deploy/lab-aioops/.verify/
+
+# Python のバイトコード。scripts/ 配下の道具を動かすと作られる
+__pycache__/
+*.pyc
