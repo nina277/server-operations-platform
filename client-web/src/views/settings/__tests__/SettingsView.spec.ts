@@ -5,7 +5,12 @@ import { AxiosError, AxiosHeaders, type InternalAxiosRequestConfig } from 'axios
 import SettingsView from '../SettingsView.vue'
 import { createTestI18n } from '@/test-utils/i18n'
 import { lastCall } from '@/test-utils/mock'
-import type { BackupSettings, NotificationSettings } from '@/types/settings'
+import type {
+  BackupGeneration,
+  BackupRestorePlan,
+  BackupSettings,
+  NotificationSettings,
+} from '@/types/settings'
 import type { NotificationTestResult } from '@/types/operations'
 
 const notificationSettings: NotificationSettings = {
@@ -37,6 +42,9 @@ const updateNotificationSettings =
   vi.fn<(s: NotificationSettings) => Promise<NotificationSettings>>()
 const sendTestNotification = vi.fn<() => Promise<NotificationTestResult[]>>()
 const fetchBackupSettings = vi.fn<() => Promise<BackupSettings>>()
+const fetchBackupGenerations = vi.fn<() => Promise<BackupGeneration[]>>()
+const previewBackupRestore = vi.fn<(key: string) => Promise<BackupRestorePlan>>()
+const restoreBackup = vi.fn<(key: string) => Promise<BackupRestorePlan>>()
 const updateBackupSettings = vi.fn<(s: BackupSettings) => Promise<BackupSettings>>()
 
 vi.mock('@/api/settings', () => ({
@@ -70,6 +78,9 @@ vi.mock('@/api/settings', () => ({
   fetchBackupRuns: () => Promise.resolve([]),
   testBackupConnection: vi.fn<() => Promise<never>>(),
   runBackup: vi.fn<() => Promise<never>>(),
+  fetchBackupGenerations: () => fetchBackupGenerations(),
+  previewBackupRestore: (key: string) => previewBackupRestore(key),
+  restoreBackup: (key: string) => restoreBackup(key),
   fetchNotificationSettings: () => fetchNotificationSettings(),
   updateNotificationSettings: (s: NotificationSettings) => updateNotificationSettings(s),
   sendTestNotification: () => sendTestNotification(),
@@ -338,5 +349,99 @@ describe('SettingsView のバックアップ設定', () => {
 
     expect(wrapper.find('[data-testid="backup-settings-form"]').exists()).toBe(false)
     expect(wrapper.find('#system-name').exists()).toBe(true)
+  })
+})
+
+/**
+ * バックアップからの復元。
+ *
+ * **復元は既存のデータを書き換える。**
+ * 下見を通さずに実行できないこと、確認を取ることを固定する。
+ */
+describe('SettingsView バックアップからの復元', () => {
+  const generation: BackupGeneration = {
+    objectKey: 'server-operations/backup-20260808-120000.bin',
+    lastModified: '2026-08-08T12:00:00Z',
+    sizeBytes: 4966,
+  }
+
+  const plan = (applied: boolean): BackupRestorePlan => ({
+    objectKey: generation.objectKey,
+    snapshotCreatedAt: '2026-08-08T12:00:00Z',
+    version: 1,
+    applied,
+    items: [
+      { category: '監視対象', added: 2, updated: 1, unchanged: 0, notInBackup: 3 },
+      { category: '診断ルール', added: 0, updated: 0, unchanged: 6, notInBackup: 0 },
+    ],
+    notes: ['利用者 1 件は復元しません。'],
+  })
+
+  beforeEach(() => {
+    fetchBackupGenerations.mockResolvedValue([generation])
+    previewBackupRestore.mockResolvedValue(plan(false))
+    restoreBackup.mockResolvedValue(plan(true))
+  })
+
+  it('下見をするまで復元を実行できない', async () => {
+    const wrapper = await mountView()
+
+    await wrapper.get('[data-testid="load-generations"]').trigger('click')
+    await flushPromises()
+
+    // 世代を選んだだけでは押せない
+    expect(
+      wrapper.get('[data-testid="apply-restore"]').attributes('disabled'),
+    ).toBeDefined()
+  })
+
+  it('下見は何が起きるかを出すが、復元は呼ばない', async () => {
+    const wrapper = await mountView()
+
+    await wrapper.get('[data-testid="load-generations"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="preview-restore"]').trigger('click')
+    await flushPromises()
+
+    expect(previewBackupRestore).toHaveBeenCalledWith(generation.objectKey)
+    expect(restoreBackup).not.toHaveBeenCalled()
+
+    const shown = wrapper.get('[data-testid="restore-plan"]').text()
+    expect(shown).toContain('監視対象')
+    // バックアップに無いものを消さないことが読み取れる
+    expect(shown).toContain('3')
+    // 戻さないものの説明が出る
+    expect(shown).toContain('利用者 1 件は復元しません。')
+  })
+
+  it('確認を断ると復元しない', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const wrapper = await mountView()
+
+    await wrapper.get('[data-testid="load-generations"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="preview-restore"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="apply-restore"]').trigger('click')
+    await flushPromises()
+
+    expect(confirm).toHaveBeenCalled()
+    expect(restoreBackup).not.toHaveBeenCalled()
+    confirm.mockRestore()
+  })
+
+  it('確認を通すと復元する', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const wrapper = await mountView()
+
+    await wrapper.get('[data-testid="load-generations"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="preview-restore"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="apply-restore"]').trigger('click')
+    await flushPromises()
+
+    expect(restoreBackup).toHaveBeenCalledWith(generation.objectKey)
+    confirm.mockRestore()
   })
 })

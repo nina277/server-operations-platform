@@ -113,3 +113,30 @@ export interface AuditLogFilterOptions {
   actions: string[]
   results: string[]
 }
+
+/** 保存先にあるバックアップの1世代。 */
+export interface BackupGeneration {
+  objectKey: string
+  lastModified: string
+  sizeBytes: number
+}
+
+export interface RestorePlanItem {
+  category: string
+  added: number
+  updated: number
+  unchanged: number
+  /** 現存するがバックアップに無い件数。復元では消さない。 */
+  notInBackup: number
+}
+
+/** 復元の下見または結果。applied が false なら何も変更していない。 */
+export interface BackupRestorePlan {
+  objectKey: string
+  snapshotCreatedAt: string
+  version: number
+  applied: boolean
+  items: RestorePlanItem[]
+  /** 復元しないもの・含まれないものの説明。 */
+  notes: string[]
+}

@@ -152,3 +152,83 @@ public record BackupSettingsDto
     [Range(1, 365)]
     public int KeepGenerations { get; init; } = 7;
 }
+
+/// <summary>保存先にあるバックアップの1世代。</summary>
+public record BackupGenerationDto
+{
+    public required string ObjectKey { get; init; }
+
+    public required DateTime LastModified { get; init; }
+
+    public required long SizeBytes { get; init; }
+
+    public static BackupGenerationDto From(Core.Services.Backup.BackupGeneration source) => new()
+    {
+        ObjectKey = source.ObjectKey,
+        LastModified = source.LastModified,
+        SizeBytes = source.SizeBytes,
+    };
+}
+
+/// <summary>復元の要求。</summary>
+public record BackupRestoreRequest
+{
+    [Required]
+    [MaxLength(500)]
+    public required string ObjectKey { get; init; }
+
+    /// <summary>
+    /// 取り違え防止の確認。復元では ObjectKey と同じ値を求める。
+    /// 下見では使わない。
+    /// </summary>
+    [MaxLength(500)]
+    public string? Confirm { get; init; }
+}
+
+public record RestorePlanItemDto
+{
+    public required string Category { get; init; }
+
+    public required int Added { get; init; }
+
+    public required int Updated { get; init; }
+
+    public required int Unchanged { get; init; }
+
+    /// <summary>現存するがバックアップに無い件数。**復元では消さない。**</summary>
+    public required int NotInBackup { get; init; }
+}
+
+/// <summary>復元の下見または結果。Applied が false なら何も変更していない。</summary>
+public record BackupRestorePlanDto
+{
+    public required string ObjectKey { get; init; }
+
+    public required DateTime SnapshotCreatedAt { get; init; }
+
+    public required int Version { get; init; }
+
+    public required bool Applied { get; init; }
+
+    public required List<RestorePlanItemDto> Items { get; init; }
+
+    /// <summary>復元しないもの・含まれないものの説明。画面にそのまま出す。</summary>
+    public required List<string> Notes { get; init; }
+
+    public static BackupRestorePlanDto From(Core.Services.Backup.BackupRestorePlan source) => new()
+    {
+        ObjectKey = source.ObjectKey,
+        SnapshotCreatedAt = source.SnapshotCreatedAt,
+        Version = source.Version,
+        Applied = source.Applied,
+        Items = source.Items.Select(i => new RestorePlanItemDto
+        {
+            Category = i.Category,
+            Added = i.Added,
+            Updated = i.Updated,
+            Unchanged = i.Unchanged,
+            NotInBackup = i.NotInBackup,
+        }).ToList(),
+        Notes = source.Notes,
+    };
+}

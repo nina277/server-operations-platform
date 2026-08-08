@@ -27,6 +27,7 @@ public class AuthorizationEndpointsTests(AuthorizedApiFactory factory)
         data.Add("GET", "/api/v1/settings/network-cidrs");
         data.Add("GET", "/api/v1/settings/secrets/smtp-password/status");
         data.Add("GET", "/api/v1/settings/backup/runs");
+        data.Add("GET", "/api/v1/settings/backup/generations");
         data.Add("GET", "/api/v1/settings/notification");
         data.Add("GET", "/api/v1/settings/backup-settings");
         data.Add("GET", "/api/v1/audit-logs");
@@ -325,6 +326,34 @@ public class AuthorizationEndpointsTests(AuthorizedApiFactory factory)
         {
             value = "勝手に入れた値",
         });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task 閲覧者はバックアップから復元できない()
+    {
+        // **復元は既存データを書き換える。**役割で確実に弾かれることを見る
+        using var client = factory.CreateClientAs(UserRole.Viewer);
+        var body = new StringContent(
+            """{"objectKey":"server-operations/x.bin","confirm":"server-operations/x.bin"}""",
+            System.Text.Encoding.UTF8, "application/json");
+
+        var response = await client.PostAsync("/api/v1/settings/backup/restore", body);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task 閲覧者は復元の下見もできない()
+    {
+        // 下見は変更しないが、保存先の中身が見える。参照でも役割を要求する
+        using var client = factory.CreateClientAs(UserRole.Viewer);
+        var body = new StringContent(
+            """{"objectKey":"server-operations/x.bin"}""",
+            System.Text.Encoding.UTF8, "application/json");
+
+        var response = await client.PostAsync("/api/v1/settings/backup/restore-preview", body);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }

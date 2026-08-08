@@ -133,6 +133,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<Core.Services.Backup.IBackupSourceProvider,
             Core.Services.Backup.DatabaseBackupSourceProvider>();
         services.AddScoped<Core.Services.Backup.IBackupService, Core.Services.Backup.BackupService>();
+        services.AddScoped<Core.Services.Backup.IBackupObjectStore, Core.Services.Backup.S3BackupObjectStore>();
+        services.AddScoped<Core.Services.Backup.IBackupRestoreService, Core.Services.Backup.BackupRestoreService>();
 
         // Hangfireクライアント(ジョブサーバーは起動しない)。未設定時は実行を委譲せず警告に留める。
         if (configuration.GetValue("Hangfire:Enabled", defaultValue: true))

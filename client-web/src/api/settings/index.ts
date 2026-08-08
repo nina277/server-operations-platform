@@ -4,6 +4,8 @@ import type {
   AuditLog,
   AuditLogFilterOptions,
   AuditLogQuery,
+  BackupGeneration,
+  BackupRestorePlan,
   BackupRun,
   BackupSettings,
   NetworkCidr,
@@ -152,4 +154,32 @@ export async function exportAuditLogs(query: AuditLogQuery): Promise<Blob> {
     responseType: 'blob',
   })
   return response.data as Blob
+}
+
+export async function fetchBackupGenerations(): Promise<BackupGeneration[]> {
+  return unwrap(
+    await http.get<ApiResponse<BackupGeneration[]>>('/api/v1/settings/backup/generations'),
+  )
+}
+
+/** 復元の下見。何も変更しない。 */
+export async function previewBackupRestore(objectKey: string): Promise<BackupRestorePlan> {
+  return unwrap(
+    await http.post<ApiResponse<BackupRestorePlan>>('/api/v1/settings/backup/restore-preview', {
+      objectKey,
+    }),
+  )
+}
+
+/**
+ * 復元を適用する。**既存のデータを書き換える。**
+ * 取り違えを防ぐため、APIはキーの再指定を求める。
+ */
+export async function restoreBackup(objectKey: string): Promise<BackupRestorePlan> {
+  return unwrap(
+    await http.post<ApiResponse<BackupRestorePlan>>('/api/v1/settings/backup/restore', {
+      objectKey,
+      confirm: objectKey,
+    }),
+  )
 }

@@ -8,6 +8,7 @@ import { extractErrorMessage } from '@/api/http'
 import {
   addNetworkCidr,
   deleteNetworkCidr,
+  fetchBackupGenerations,
   fetchBackupRuns,
   fetchBackupSettings,
   fetchNetworkCidrs,
@@ -16,6 +17,8 @@ import {
   fetchRetention,
   fetchSecretStatus,
   previewRetention,
+  previewBackupRestore,
+  restoreBackup,
   runBackup,
   sendTestNotification,
   testBackupConnection,
@@ -29,6 +32,8 @@ import { fetchAiUsage, updateAiEnabled, updateAiLimits } from '@/api/operations'
 import { formatBytes, formatDateTime, resultTone } from '@/utils/format'
 import type { AiUsageSummary } from '@/types/operations'
 import type {
+  BackupGeneration,
+  BackupRestorePlan,
   BackupRun,
   BackupSettings,
   NetworkCidr,
@@ -66,6 +71,13 @@ const recipientsText = ref('')
 const newCidr = ref({ cidr: '', description: '' })
 const notificationTestResults = ref<NotificationTestResult[] | null>(null)
 const backupResult = ref<ConnectionTestResult | null>(null)
+
+// --- 復元 ---
+// 復元は既存のデータを書き換える。**下見を通さずには実行させない。**
+const backupGenerations = ref<BackupGeneration[]>([])
+const selectedGeneration = ref<string>('')
+const restorePlan = ref<BackupRestorePlan | null>(null)
+const restoreError = ref<string | null>(null)
 
 const loading = ref(true)
 const busy = ref(false)
@@ -227,6 +239,45 @@ const handleRunBackup = () =>
   run(async () => {
     await runBackup()
     backupRuns.value = await fetchBackupRuns()
+  })
+
+const handleLoadGenerations = () =>
+  run(async () => {
+    restoreError.value = null
+    restorePlan.value = null
+    backupGenerations.value = await fetchBackupGenerations()
+    selectedGeneration.value = backupGenerations.value[0]?.objectKey ?? ''
+  })
+
+/** 下見。何も変更しない。 */
+const handlePreviewRestore = () =>
+  run(async () => {
+    restoreError.value = null
+    restorePlan.value = null
+    try {
+      restorePlan.value = await previewBackupRestore(selectedGeneration.value)
+    } catch (error) {
+      restoreError.value = error instanceof Error ? error.message : String(error)
+    }
+  })
+
+/**
+ * 復元を適用する。**既存のデータを書き換える。**
+ * 下見を見たうえで、もう一度確認を取る。
+ */
+const handleRestore = () =>
+  run(async () => {
+    if (!window.confirm(t('settings.restoreConfirm', { key: selectedGeneration.value }))) {
+      return
+    }
+    restoreError.value = null
+    try {
+      restorePlan.value = await restoreBackup(selectedGeneration.value)
+      // 復元で監視対象やルールが変わるため、画面の値を取り直す
+      backupRuns.value = await fetchBackupRuns()
+    } catch (error) {
+      restoreError.value = error instanceof Error ? error.message : String(error)
+    }
   })
 
 const handleToggleAi = (isEnabled: boolean) =>
@@ -754,6 +805,95 @@ const handleSaveAiLimits = () =>
               </tr>
             </tbody>
           </table>
+        </div>
+
+        <h3 class="section__subtitle">{{ t('settings.restore') }}</h3>
+
+        <p class="form-field__help">{{ t('settings.restoreHelp') }}</p>
+
+        <div class="inline-form">
+          <button
+            type="button"
+            class="button"
+            :disabled="busy"
+            data-testid="load-generations"
+            @click="handleLoadGenerations"
+          >
+            {{ t('settings.loadGenerations') }}
+          </button>
+        </div>
+
+        <div v-if="backupGenerations.length > 0" class="form-field">
+          <label for="restore-generation">{{ t('settings.generation') }}</label>
+          <select id="restore-generation" v-model="selectedGeneration" :disabled="busy">
+            <option v-for="item in backupGenerations" :key="item.objectKey" :value="item.objectKey">
+              {{ formatDateTime(item.lastModified, locale) }} — {{ formatBytes(item.sizeBytes) }} —
+              {{ item.objectKey }}
+            </option>
+          </select>
+        </div>
+
+        <div v-if="selectedGeneration" class="inline-form">
+          <button
+            type="button"
+            class="button"
+            :disabled="busy"
+            data-testid="preview-restore"
+            @click="handlePreviewRestore"
+          >
+            {{ t('settings.previewRestore') }}
+          </button>
+          <button
+            type="button"
+            class="button button--danger"
+            :disabled="busy || !restorePlan || restorePlan.applied"
+            data-testid="apply-restore"
+            @click="handleRestore"
+          >
+            {{ t('settings.applyRestore') }}
+          </button>
+        </div>
+
+        <p v-if="restoreError" role="alert" class="result">
+          <StatusBadge tone="critical" :label="t('common.error')" />
+          <span>{{ restoreError }}</span>
+        </p>
+
+        <div v-if="restorePlan" data-testid="restore-plan">
+          <p role="status" class="result">
+            <StatusBadge
+              :tone="restorePlan.applied ? 'low' : 'neutral'"
+              :label="restorePlan.applied ? t('settings.restoreApplied') : t('settings.restorePreviewed')"
+            />
+            <span>{{ formatDateTime(restorePlan.snapshotCreatedAt, locale) }}</span>
+          </p>
+
+          <div class="table-scroll">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th scope="col">{{ t('settings.restoreCategory') }}</th>
+                  <th scope="col">{{ t('settings.restoreAdded') }}</th>
+                  <th scope="col">{{ t('settings.restoreUpdated') }}</th>
+                  <th scope="col">{{ t('settings.restoreUnchanged') }}</th>
+                  <th scope="col">{{ t('settings.restoreNotInBackup') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in restorePlan.items" :key="item.category">
+                  <th scope="row">{{ item.category }}</th>
+                  <td>{{ item.added }}</td>
+                  <td>{{ item.updated }}</td>
+                  <td>{{ item.unchanged }}</td>
+                  <td>{{ item.notInBackup }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <ul class="notes">
+            <li v-for="note in restorePlan.notes" :key="note">{{ note }}</li>
+          </ul>
         </div>
       </section>
 

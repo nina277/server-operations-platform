@@ -190,7 +190,33 @@ textarea {
   background-color: var(--color-accent-hover);
 }
 
+/* 破壊的な操作のボタン。**押す前に色で気づけるようにする。**
+   文字は白のままでは暗い配色で読めないため、深刻度の色ではなく
+   十分な明度差のある背景を使う */
+.button--danger {
+  border-color: var(--color-critical);
+  background-color: var(--color-critical-bg);
+  color: var(--color-critical);
+  font-weight: 600;
+}
+
+.button--danger:hover:not(:disabled) {
+  border-color: var(--color-critical);
+  background-color: var(--color-surface);
+}
+
 .button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* 復元で「戻さないもの」の説明。読み飛ばされると困るため本文の大きさで出す */
+.notes {
+  margin: var(--spacing-md) 0 0;
+  padding-left: 1.2em;
+  color: var(--color-text-muted);
+}
+
+.notes li + li {
+  margin-top: var(--spacing-xs);
 }
