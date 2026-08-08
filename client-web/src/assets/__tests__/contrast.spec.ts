@@ -23,10 +23,12 @@ const darkAt = css.indexOf('prefers-color-scheme: dark')
 
 function tokens(source: string): Record<string, string> {
   const found: Record<string, string> = {}
-  for (const [, name, value] of source.matchAll(
-    /(--color-[a-z-]+):\s*(#[0-9a-fA-F]{6})/g,
-  )) {
-    found[name] = value
+  for (const match of source.matchAll(/(--color-[a-z-]+):\s*(#[0-9a-fA-F]{6})/g)) {
+    const name = match[1]
+    const value = match[2]
+    if (name !== undefined && value !== undefined) {
+      found[name] = value
+    }
   }
   return found
 }
@@ -88,13 +90,15 @@ describe.each([
   it.each(PAIRS)(
     '%s と %s (%s) が %d:1 以上ある',
     (foreground, background, _use, required) => {
-      expect(palette[foreground], `${foreground} が定義されていない`).toBeDefined()
-      expect(palette[background], `${background} が定義されていない`).toBeDefined()
+      const fg = palette[foreground]
+      const bg = palette[background]
+      expect(fg, `${foreground} が定義されていない`).toBeDefined()
+      expect(bg, `${background} が定義されていない`).toBeDefined()
 
-      const ratio = contrast(palette[foreground], palette[background])
+      const ratio = contrast(fg!, bg!)
       expect(
         Number(ratio.toFixed(2)),
-        `${palette[foreground]} と ${palette[background]} は ${ratio.toFixed(2)}:1`,
+        `${fg} と ${bg} は ${ratio.toFixed(2)}:1`,
       ).toBeGreaterThanOrEqual(required)
     },
   )
