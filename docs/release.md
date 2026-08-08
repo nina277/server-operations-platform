@@ -505,3 +505,31 @@ Dockerへの接続はSocket Proxy経由に限る。
 | 随時 | 依存の脆弱性情報。ただしEF Coreは9.0で固定する |
 
 バックアップは**取れているだけでは足りない**。復元できることを定期的に確かめる。
+
+### 復元できることの確かめ方
+
+アプリのバックアップ(S3互換の保存先に置く暗号化ファイル)は、
+`scripts/restore-backup.py` で取り出して中身を確認する。
+
+```bash
+# 保存先にある世代を見る
+./scripts/restore-backup.py --endpoint http://minio:9000 --bucket <バケット>     --access-key ... --secret-key ... --list
+
+# 取り出して復号する(中身はJSON)
+./scripts/restore-backup.py --endpoint http://minio:9000 --bucket <バケット>     --object server-operations/backup-YYYYmmdd-HHMMSS.bin     --access-key ... --secret-key ... --encryption-key "..." -o restored.json
+```
+
+鍵はコマンドラインに書かず環境変数で渡せる(`ps` で見えるため)。
+
+    BACKUP_ACCESS_KEY / BACKUP_SECRET_KEY / BACKUP_ENCRYPTION_KEY
+
+**暗号化キーを失うとバックアップは二度と開けない。**鍵は別に保全すること。
+鍵を変更した場合、変更前に取ったバックアップは開けなくなる。
+
+含まれるのは設定・監視対象・診断ルール・利用者で、
+**暗号化済みの秘密値と収集データは含まない。**
+戻したあとに秘密情報(SMTPパスワード等)は入れ直しが要る。
+インシデントや監査ログを戻すには、上の `mysqldump` からの復元を使う。
+
+なお**画面からの復元はまだ無い**(`docs/backlog.md` の B-14)。
+いまは取り出して中身を確認するところまで。
