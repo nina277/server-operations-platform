@@ -113,6 +113,7 @@ if (!string.IsNullOrWhiteSpace(connectionString))
     builder.Services.AddScoped<IDockerAdapter, DockerAdapter>();
     // 展開は別のHttpClientを使う。**監視用とは接続先の権限が違う**
     builder.Services.AddScoped<IDeploymentAdapter, DockerDeploymentAdapter>();
+    builder.Services.AddScoped<ServerOperations.Core.Services.Deployment.IServiceDeploymentService, ServerOperations.Core.Services.Deployment.ServiceDeploymentService>();
     builder.Services.AddScoped<IHttpAdapter, HttpAdapter>();
     builder.Services.AddScoped<IHostMetricsAdapter, HostMetricsAdapter>();
 }

@@ -59,6 +59,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
     public DbSet<AiUsageLimit> AiUsageLimits => Set<AiUsageLimit>();
 
+    public DbSet<ServiceTemplate> ServiceTemplates => Set<ServiceTemplate>();
+
+    public DbSet<ServiceTemplateInput> ServiceTemplateInputs => Set<ServiceTemplateInput>();
+
+    public DbSet<DeployedService> DeployedServices => Set<DeployedService>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);

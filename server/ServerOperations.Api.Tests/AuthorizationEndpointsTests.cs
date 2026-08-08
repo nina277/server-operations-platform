@@ -28,6 +28,8 @@ public class AuthorizationEndpointsTests(AuthorizedApiFactory factory)
         data.Add("GET", "/api/v1/settings/secrets/smtp-password/status");
         data.Add("GET", "/api/v1/settings/backup/runs");
         data.Add("GET", "/api/v1/settings/backup/generations");
+        data.Add("GET", "/api/v1/services");
+        data.Add("GET", "/api/v1/services/templates");
         data.Add("GET", "/api/v1/settings/notification");
         data.Add("GET", "/api/v1/settings/backup-settings");
         data.Add("GET", "/api/v1/audit-logs");
@@ -326,6 +328,33 @@ public class AuthorizationEndpointsTests(AuthorizedApiFactory factory)
         {
             value = "勝手に入れた値",
         });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task 閲覧者はサービスを展開できない()
+    {
+        // **展開はホストに新しいものを動かす。**役割で確実に弾かれることを見る
+        using var client = factory.CreateClientAs(UserRole.Viewer);
+        var body = new StringContent(
+            """{"targetId":1,"templateId":1,"name":"web","confirm":"web"}""",
+            System.Text.Encoding.UTF8, "application/json");
+
+        var response = await client.PostAsync("/api/v1/services/deploy", body);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task 閲覧者は展開の下見もできない()
+    {
+        using var client = factory.CreateClientAs(UserRole.Viewer);
+        var body = new StringContent(
+            """{"targetId":1,"templateId":1,"name":"web"}""",
+            System.Text.Encoding.UTF8, "application/json");
+
+        var response = await client.PostAsync("/api/v1/services/deploy-preview", body);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }

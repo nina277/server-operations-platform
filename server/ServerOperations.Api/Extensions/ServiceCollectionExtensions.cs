@@ -181,6 +181,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IDockerAdapter, DockerAdapter>();
         // 展開は別のHttpClientを使う。**監視用とは接続先の権限が違う**
         services.AddScoped<IDeploymentAdapter, DockerDeploymentAdapter>();
+        services.AddScoped<Core.Services.Deployment.IServiceDeploymentService, Core.Services.Deployment.ServiceDeploymentService>();
         services.AddScoped<IHttpAdapter, HttpAdapter>();
         services.AddScoped<IHostMetricsAdapter, HostMetricsAdapter>();
 

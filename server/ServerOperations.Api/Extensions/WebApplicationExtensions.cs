@@ -40,6 +40,20 @@ public static class WebApplicationExtensions
                 string.Join(", ", missingRules.Select(rule => rule.Name)));
         }
 
+        // サービステンプレートも、既定ルールと同じ考え方で足りない分だけ投入する。
+        // 利用者が消したものは復活させない
+        var existingTemplateKeys = await db.ServiceTemplates.Select(t => t.Key).ToListAsync();
+        var missingTemplates = ServerOperations.Core.Services.Deployment.DefaultServiceTemplates
+            .Missing(existingTemplateKeys, DateTime.UtcNow);
+        if (missingTemplates.Count > 0)
+        {
+            db.ServiceTemplates.AddRange(missingTemplates);
+            await db.SaveChangesAsync();
+            logger.LogInformation(
+                "Default service templates added: {Keys}",
+                string.Join(", ", missingTemplates.Select(t => t.Key)));
+        }
+
         if (await db.Users.AnyAsync())
         {
             return;
