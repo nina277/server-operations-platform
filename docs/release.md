@@ -430,6 +430,13 @@ curl http://localhost:8080/api/health/ready        # readiness
 docker compose logs --tail=50 api worker           # 例外が出ていないこと
 ```
 
+`readiness` が 502 を返す場合は nginx が古いIPを見ている可能性がある。
+
+nginx は `resolver` を設定して要求のたびに名前解決するようにしてあるため、
+通常は api を作り直しても追随する。それでも 502 が続く場合は
+`docker compose logs nginx` に `connect() failed` が出ていないか確認し、
+出ていれば `docker compose restart nginx` で復旧する。
+
 画面で次を確認する。
 
 1. ログインできること
