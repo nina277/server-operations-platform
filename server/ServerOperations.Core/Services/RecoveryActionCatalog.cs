@@ -3,8 +3,30 @@ using ServerOperations.Core.Models.Operations;
 namespace ServerOperations.Core.Services;
 
 /// <summary>
-/// 復旧アクションの定義。指示書6.2の許可リストに対応する。
-/// High操作はこのカタログに存在せず、実行APIも提供しない。
+/// アクションが属する層。**危険度ではなく「誰が起動するか」で分ける。**
+///
+/// 危険度で分けると「Lowなら自動でよい」となり、操作を増やすほど
+/// 無人実行の面積が広がる。無人で動くかどうかで分ければ、
+/// 第2層に何を足しても無人実行の範囲は変わらない。
+/// </summary>
+public enum ActionTier
+{
+    /// <summary>
+    /// 自動操作。システムが無人で起動しうる。**ここは4つに固定する。**
+    /// 診断・AIの応答・ルールの推奨アクションが到達できるのはこの層だけ。
+    /// </summary>
+    Automatic = 0,
+
+    /// <summary>
+    /// 運用操作。**人が明示的に起動したときだけ動く。**
+    /// 画面からの操作、または人が登録した予定による実行。
+    /// 自動復旧の経路からは決して到達できない。
+    /// </summary>
+    Operator = 1,
+}
+
+/// <summary>
+/// 復旧・運用アクションの定義。指示書6.2の許可リストに対応する。
 /// </summary>
 public record RecoveryActionDefinition(
     string ActionId,
@@ -13,13 +35,25 @@ public record RecoveryActionDefinition(
     bool RequiresApproval,
     bool RequiresIdempotencyKey,
     bool RequiresTargetResource,
-    string Description);
+    string Description,
+    ActionTier Tier = ActionTier.Automatic);
 
 public interface IRecoveryActionCatalog
 {
     IReadOnlyList<RecoveryActionDefinition> GetAll();
 
     RecoveryActionDefinition? Find(string actionId);
+
+    /// <summary>
+    /// 無人で実行しうるアクション(第1層)だけを返す。
+    ///
+    /// 診断の推奨アクション・AIの応答・ルールの設定値は、
+    /// **すべてこの一覧で検証する。**
+    /// </summary>
+    IReadOnlyList<RecoveryActionDefinition> GetAutomatic();
+
+    /// <summary>指定のアクションが無人で実行しうるか。</summary>
+    bool IsAutomatic(string actionId);
 }
 
 public class RecoveryActionCatalog : IRecoveryActionCatalog
@@ -66,6 +100,12 @@ public class RecoveryActionCatalog : IRecoveryActionCatalog
     ];
 
     public IReadOnlyList<RecoveryActionDefinition> GetAll() => Definitions;
+
+    public IReadOnlyList<RecoveryActionDefinition> GetAutomatic() =>
+        Definitions.Where(d => d.Tier == ActionTier.Automatic).ToList();
+
+    public bool IsAutomatic(string actionId) =>
+        Find(actionId) is { Tier: ActionTier.Automatic };
 
     public RecoveryActionDefinition? Find(string actionId) =>
         Definitions.FirstOrDefault(d => d.ActionId == actionId);

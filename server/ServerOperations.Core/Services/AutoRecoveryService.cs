@@ -71,7 +71,18 @@ public class AutoRecoveryService(
             return null;
         }
 
-        // 3. Low危険度かつ承認不要のものだけを自動実行する
+        // 3. **第2層(人が起動する運用操作)は、無人では決して実行しない。**
+        // 危険度や承認要否より先に見る。ここが二層の境界そのもの
+        if (definition.Tier != ActionTier.Automatic)
+        {
+            await RecordDeniedAsync(
+                incident, actionId,
+                "人が起動する運用操作のため、自動実行しません。",
+                ct);
+            return null;
+        }
+
+        // 4. Low危険度かつ承認不要のものだけを自動実行する
         if (definition.RiskLevel != ActionRiskLevel.Low || definition.RequiresApproval)
         {
             await RecordDeniedAsync(

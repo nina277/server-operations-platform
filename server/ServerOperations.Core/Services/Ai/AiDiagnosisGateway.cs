@@ -185,7 +185,10 @@ public class AiDiagnosisGateway(
         }
 
         return template.AllowedOperations
-            .Where(id => actionCatalog.Find(id) is { RiskLevel: not ActionRiskLevel.High })
+            // **AIの応答が届くのは第1層だけ。**
+            // 第2層に何を足しても、AIから到達できる操作は増えない
+            .Where(id => actionCatalog.IsAutomatic(id)
+                && actionCatalog.Find(id) is { RiskLevel: not ActionRiskLevel.High })
             .ToList();
     }
 

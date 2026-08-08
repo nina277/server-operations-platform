@@ -16,6 +16,7 @@
 
 | 文書 | 内容 |
 |---|---|
+| [docs/extension-design.md](docs/extension-design.md) | 卒業制作の後に機能を足すための、二層の境界の設計 |
 | [docs/features.md](docs/features.md) | 実装済み機能の一覧と、意図的に実装しなかったもの |
 | [docs/design.md](docs/design.md) | 背景・目的・システム構成・設計判断・成果と限界(卒業制作の設計書) |
 | [docs/slides/](docs/slides/) | 発表資料(PowerPoint 18枚・発表者ノート付き) |

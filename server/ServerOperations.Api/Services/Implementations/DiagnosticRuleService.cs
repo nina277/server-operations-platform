@@ -169,7 +169,8 @@ public class DiagnosticRuleService(
         RuleTypes = Enum.GetNames<DiagnosticRuleType>(),
         Severities = Enum.GetNames<IncidentSeverity>(),
         // 推奨アクションに指定できるのは復旧の許可リストにあるIDだけ
-        RecommendedActionIds = actionCatalog.GetAll().Select(d => d.ActionId).ToList(),
+        // 診断ルールの推奨アクションは無人実行の入口になる。第1層に限る
+        RecommendedActionIds = actionCatalog.GetAutomatic().Select(d => d.ActionId).ToList(),
     };
 
     private async Task<DiagnosticRule> FindOrThrowAsync(long id, CancellationToken ct) =>
@@ -232,7 +233,9 @@ public class DiagnosticRuleService(
         if (!string.IsNullOrWhiteSpace(recommendedActionIdText))
         {
             var candidate = recommendedActionIdText.Trim();
-            if (actionCatalog.Find(candidate) is null)
+            // 第2層(人が起動する運用操作)はルールから指定できない。
+            // 指定できると、ルールに一致しただけで無人実行されることになる
+            if (!actionCatalog.IsAutomatic(candidate))
             {
                 throw AppException.BadRequest("invalid_recommended_action",
                     "推奨アクションは復旧の許可リストにあるIDのみ指定できます。");
